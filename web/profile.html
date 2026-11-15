@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/eel.js"></script>
+  <title>Profil Saya · The Weeknd</title>
+</head>
+<body>
+  <div id="site-nav"></div>
+  <main class="page" id="main">
+    <div class="page-head" style="gap:32px">
+      <p class="eyebrow">AKUN PENGUNJUNG</p>
+      <h1 class="display page-title">PROFIL SAYA.</h1>
+      <p class="muted" style="font-size:14px">Kelola data diri dan keamanan akunmu.</p>
+      <div class="tabs two" id="ptabs" role="tablist">
+        <button class="tab active" role="tab" data-tab="data" aria-selected="true">Data Diri</button>
+        <button class="tab" role="tab" data-tab="sec" aria-selected="false">Keamanan</button>
+      </div>
+    </div>
+    <div class="two-col" id="pcols" data-tab="data">
+      <form class="card panel" id="card-data" novalidate>
+        <h2>DATA DIRI</h2>
+        <div class="field" id="f-full_name"><label for="full_name">Nama lengkap</label>
+          <input class="input" id="full_name" autocomplete="name"><p class="help"></p></div>
+        <div class="field"><label for="email">Email (tidak dapat diubah)</label>
+          <input class="input locked" id="email" readonly tabindex="-1"></div>
+        <div class="field" id="f-phone"><label for="phone">Nomor HP</label>
+          <input class="input" id="phone" type="tel" autocomplete="tel"><p class="help"></p></div>
+        <button class="btn btn-primary btn-block" type="submit" id="save-btn">Simpan Perubahan</button>
+      </form>
+      <form class="card panel" id="card-sec" novalidate>
+        <h2>KEAMANAN</h2>
+        <div class="field" id="f-old"><label for="old">Password lama</label>
+          <input class="input" id="old" type="password" placeholder="••••••••" autocomplete="current-password"><p class="help"></p></div>
+        <div class="field" id="f-new"><label for="new">Password baru</label>
+          <input class="input" id="new" type="password" placeholder="Minimal 8 karakter" autocomplete="new-password"><p class="help"></p></div>
+        <div class="field" id="f-confirm"><label for="confirm">Konfirmasi password baru</label>
+          <input class="input" id="confirm" type="password" placeholder="Ulangi password baru" autocomplete="new-password"><p class="help"></p></div>
+        <button class="btn btn-outline btn-block" type="submit" id="pw-btn">Ganti Password</button>
+      </form>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script src="js/app.js"></script>
+  <script src="js/profile.js"></script>
+</body>
+</html>

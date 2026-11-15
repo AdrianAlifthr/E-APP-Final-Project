@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/eel.js"></script>
+  <title>Berita & Pengumuman · The Weeknd</title>
+</head>
+<body>
+  <div id="site-nav"></div>
+  <main class="page" id="main">
+    <div class="page-head" style="gap:32px">
+      <p class="eyebrow">CATATAN SEBELUM MALAM DIMULAI</p>
+      <h1 class="display page-title">BERITA &amp; PENGUMUMAN.</h1>
+      <p class="muted" style="font-size:14px">Informasi terbaru langsung dari tim publikasi konser.</p>
+      <div class="field"><label for="q">Cari berita</label>
+        <input class="input" id="q" type="search" placeholder="Cari informasi konser…" autocomplete="off"></div>
+    </div>
+    <div class="grid-3" id="news-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+    <div class="pager" id="pager"></div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script src="js/app.js"></script>
+  <script src="js/news.js"></script>
+</body>
+</html>

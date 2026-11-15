@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/eel.js"></script>
+  <title>Checkout · The Weeknd</title>
+</head>
+<body>
+  <div id="site-nav"></div>
+  <main class="page">
+    <div class="page-head">
+      <p class="eyebrow">AMANKAN TEMPATMU</p>
+      <h1 class="display page-title">CHECKOUT.</h1>
+      <p class="muted" style="font-size:14px">Pilih metode pembayaran untuk menyelesaikan pesanan.</p>
+      <div id="stepper"></div>
+      <div class="timer-banner" role="timer"><span>◷ Selesaikan pembayaran dalam</span><span class="time" id="timer">15:00</span></div>
+    </div>
+    <div class="picker">
+      <div class="picker-list">
+        <h2 class="sec-title">METODE PEMBAYARAN</h2>
+        <div id="methods" class="picker-list"></div>
+        <p class="muted" style="font-size:12px">Pembayaran disimulasikan untuk kebutuhan proyek akademik.</p>
+      </div>
+      <div id="summary"></div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script src="js/app.js"></script>
+  <script src="js/checkout.js"></script>
+</body>
+</html>

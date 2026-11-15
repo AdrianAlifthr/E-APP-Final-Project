@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Weeknd · After Hours Til Dawn · Jakarta 2027</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/eel.js"></script>
+</head>
+<body>
+  <div id="site-nav"></div>
+
+  <main class="page">
+    <!-- Hero -->
+    <section class="hero" aria-label="Hero konser">
+      <div class="hero-text">
+        <p class="eyebrow" style="font-size:11px">ONE NIGHT. ONE CITY. ALL YOUR FEELINGS.</p>
+        <h1 class="display hero-title">THE<br>WEEKND</h1>
+        <p class="display hero-sub">AFTER HOURS TIL DAWN</p>
+        <p class="hero-meta">14 AGUSTUS 2027 / GELORA BUNG KARNO<br>JAKARTA, INDONESIA</p>
+        <div class="countdown" aria-label="Hitung mundur konser">
+          <div class="timer"><span id="cd-d">0</span><br>HARI</div>
+          <div class="timer"><span id="cd-h">00</span><br>JAM</div>
+          <div class="timer"><span id="cd-m">00</span><br>MENIT</div>
+          <div class="timer"><span id="cd-s">00</span><br>DETIK</div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-action="buy">Beli Tiket ↗</button>
+          <a class="btn btn-outline" href="#info">Lihat Info ↓</a>
+        </div>
+        <p class="muted" id="sale-note" style="font-size:11px">PENJUALAN DIBUKA</p>
+      </div>
+      <div class="poster" role="img" aria-label="Poster After Hours Til Dawn">
+        <small>XO &nbsp;/&nbsp; JAKARTA 2027</small>
+        <p class="display poster-title">AFTER<br>HOURS<br>TIL DAWN</p>
+        <small>THE WEEKND &nbsp;─&nbsp; LIVE EXPERIENCE</small>
+      </div>
+    </section>
+
+    <!-- Info konser -->
+    <section class="section" id="info">
+      <h2 class="h2">MALAM YANG TAK AKAN TERULANG.</h2>
+      <div class="info-grid">
+        <div><p class="eyebrow">01 / TANGGAL</p><p>Sabtu, 14 Agustus 2027</p></div>
+        <div><p class="eyebrow">02 / GATE OPEN</p><p>16.00 WIB · Show 20.00</p></div>
+        <div><p class="eyebrow">03 / VENUE</p><p>GBK, Jakarta · 40.000 fans</p></div>
+      </div>
+      <div class="location">
+        <div class="card">
+          <p class="muted" style="font-size:12px">JAKARTA / SENAYAN</p>
+          <p class="place">◎ GELORA BUNG KARNO</p>
+          <p class="muted" style="font-size:14px">Jl. Pintu Satu Senayan, Jakarta Pusat</p>
+        </div>
+        <a class="btn btn-outline" target="_blank" rel="noopener"
+           href="https://www.google.com/maps/search/?api=1&query=Gelora+Bung+Karno+Jakarta">Buka di Maps ↗</a>
+      </div>
+    </section>
+
+    <!-- Kategori tiket -->
+    <section class="section">
+      <h2 class="h2">PILIH CARA KAMU MENIKMATI MALAM.</h2>
+      <div class="grid-4" id="categories"></div>
+    </section>
+
+    <!-- Berita -->
+    <section class="section">
+      <h2 class="h2">SEBELUM LAMPU PADAM.</h2>
+      <div class="grid-3" id="news"></div>
+      <a class="btn btn-outline btn-block" data-route="U13">Semua berita →</a>
+    </section>
+
+    <!-- Teaser & FAQ -->
+    <section class="split">
+      <div class="teaser">
+        <p class="display">THE NIGHT<br>IS CALLING.</p>
+        <p class="muted" style="font-size:12px">Visual konsep · After Hours Til Dawn</p>
+      </div>
+      <div class="help">
+        <h2 class="h3">SIAP UNTUK MALAM INI?</h2>
+        <p>Berapa maksimal pembelian tiket?<br>Maksimal 4 tiket untuk setiap akun.</p>
+        <p>Bagaimana cara masuk venue?<br>Tunjukkan QR e-ticket dan identitasmu.</p>
+        <a class="btn btn-outline btn-block" data-route="U14">Lihat semua FAQ →</a>
+      </div>
+    </section>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="js/app.js"></script>
+  <script src="js/home.js"></script>
+</body>
+</html>

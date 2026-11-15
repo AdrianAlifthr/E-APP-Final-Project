@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/eel.js"></script>
+  <title>Pilih Tiket · The Weeknd</title>
+</head>
+<body>
+  <div id="site-nav"></div>
+  <main class="page">
+    <div class="page-head">
+      <p class="eyebrow">AFTER HOURS TIL DAWN / JAKARTA</p>
+      <h1 class="display page-title">PILIH TIKETMU.</h1>
+      <p class="muted" style="font-size:14px">14 Agustus 2027 · Gelora Bung Karno, Jakarta</p>
+      <div id="stepper"></div>
+    </div>
+    <div class="picker">
+      <div class="picker-list" id="picker-list"><div class="skeleton"></div><div class="skeleton"></div></div>
+      <aside class="card summary" aria-label="Ringkasan pesanan">
+        <h2>RINGKASAN PESANAN</h2>
+        <div><p>THE WEEKND</p><p>After Hours Til Dawn · Jakarta</p></div>
+        <p class="sum-note">14 Agustus 2027 · GBK, Jakarta</p>
+        <hr>
+        <div id="sum-lines"></div>
+        <div class="sum-row"><span>Biaya layanan</span><span>Termasuk</span></div>
+        <hr>
+        <div><p class="muted" style="font-size:11px">TOTAL PEMBAYARAN</p><p class="sum-total" id="sum-total">Rp0</p></div>
+        <button class="btn btn-primary btn-block" id="continue-btn" disabled>Lanjutkan →</button>
+        <p class="sum-note">Maks. 4 tiket per akun. Harga termasuk pajak dan biaya layanan.</p>
+      </aside>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script src="js/app.js"></script>
+  <script src="js/tickets.js"></script>
+</body>
+</html>
