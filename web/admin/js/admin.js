@@ -13,7 +13,7 @@ function renderAdminLayout(activeMenu) {
   const menus = [
     { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: icoDash },
     { id: 'konser', label: '— Konser', href: 'concert.html' },
-    { id: 'kategori', label: '— Kategori Tiket', locked: true },
+    { id: 'kategori', label: '— Kategori Tiket', href: 'categories.html' },
     { id: 'pesanan', label: '— Pesanan', locked: true },
     { id: 'pembayaran', label: '— Pembayaran', locked: true },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
@@ -421,31 +421,84 @@ renderAdminLayout('konser');
   venueSelect.innerHTML = venues.map(v => `<option value="${v.venue_id}" ${v.venue_id === c.venue_id ? 'selected' : ''}>${esc(v.name)} · ${esc(v.city)}</option>`).join('');
 
   // Tombol Venue Baru
+  // Tombol Venue Baru (Modal Form HTML Lengkap)
   document.getElementById('btn-new-venue').onclick = () => {
-    modal({
-      title: 'TAMBAH VENUE BARU',
-      text: 'Masukkan detail venue konser.',
-      actions: [
-        {label: 'Batal'},
-        {label: 'Simpan Venue', primary: true, onClick: async () => {
-          // Buat prompt sederhana atau form modal penambahan venue
-          const name = prompt('Nama Venue (contoh: GBK Madya):');
-          if (!name) return;
-          const city = prompt('Kota:', 'Jakarta') || 'Jakarta';
-          const cap = Number(prompt('Kapasitas Penonton:', '15000')) || 15000;
-          
-          const addRes = await backend('create_venue', [admin.user_id, {name, city, capacity: cap}], null);
-          if (addRes && addRes.ok) {
-            toast('Venue berhasil ditambahkan!');
-            initAdminConcertEdit();
-          } else {
-            toast((addRes && addRes.message) || 'Gagal menambah venue', 'error');
-          }
-        }}
-      ]
-    });
-  };
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `
+      <form class="modal modal-lg" id="venue-form" novalidate>
+        <h3>TAMBAH VENUE BARU</h3>
+        <div class="field">
+          <label for="v-name">Nama venue</label>
+          <input class="input" id="v-name" placeholder="Contoh: Stadion Utama Gelora Bung Karno" required>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label for="v-city">Kota</label>
+            <input class="input" id="v-city" value="Jakarta" placeholder="Jakarta" required>
+          </div>
+          <div class="field">
+            <label for="v-cap">Kapasitas penonton</label>
+            <input class="input" id="v-cap" type="number" min="100" value="15000" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="v-addr">Alamat lengkap (opsional)</label>
+          <input class="input" id="v-addr" placeholder="Jl. Pintu Satu Senayan, Jakarta Pusat">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="v-cancel">Batal</button>
+          <button type="submit" class="btn btn-primary" id="v-save">Simpan Venue</button>
+        </div>
+      </form>`;
 
+    ov.querySelector('#v-cancel').onclick = () => ov.remove();
+    ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+    ov.querySelector('#venue-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = ov.querySelector('#v-name').value.trim();
+      const city = ov.querySelector('#v-city').value.trim() || 'Jakarta';
+      const capacity = Number(ov.querySelector('#v-cap').value) || 15000;
+      const address = ov.querySelector('#v-addr').value.trim();
+      const saveBtn = ov.querySelector('#v-save');
+
+      if (name.length < 3) {
+        toast('Nama venue minimal 3 karakter.', 'error');
+        return;
+      }
+
+      saveBtn.classList.add('is-loading');
+      saveBtn.disabled = true;
+
+      const addRes = await backend('create_venue', [admin.user_id, { name, city, capacity, address }], null);
+
+      saveBtn.classList.remove('is-loading');
+      saveBtn.disabled = false;
+
+      if (!addRes || !addRes.ok) {
+        toast((addRes && addRes.message) || 'Gagal menambah venue baru.', 'error');
+        return;
+      }
+
+      // Masukkan venue baru langsung ke dropdown dan otomatis pilih
+      const newVenue = addRes.venue || {};
+      if (newVenue.venue_id) {
+        const opt = document.createElement('option');
+        opt.value = newVenue.venue_id;
+        opt.textContent = `${newVenue.name} · ${newVenue.city}`;
+        opt.selected = true;
+        venueSelect.appendChild(opt);
+        venueSelect.value = String(newVenue.venue_id);
+      }
+
+      ov.remove();
+      toast('Venue baru berhasil ditambahkan dan dipilih!');
+    };
+
+    document.body.appendChild(ov);
+    ov.querySelector('#v-name').focus();
+  };
   // Submit form edit
   document.getElementById('concert-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -475,4 +528,206 @@ renderAdminLayout('konser');
     toast('Informasi konser berhasil disimpan!');
     setTimeout(() => window.location.href = 'concert.html', 1000);
   };
+}
+/* ----- A4: Kategori Tiket ----- */
+let _catList = [];
+
+async function initAdminCategories() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('kategori');
+
+  document.getElementById('btn-add-cat').onclick = () => openCategoryModal(admin, null);
+  document.getElementById('search-cat').addEventListener('input', (e) => {
+    renderCategoryTable(admin, _catList, e.target.value);
+  });
+
+  await loadAdminCategories(admin);
+}
+
+async function loadAdminCategories(admin) {
+  const res = await backend('get_admin_ticket_categories', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat kategori tiket.', 'error');
+    return;
+  }
+  _catList = res.categories || [];
+
+  const totalQuota = _catList.reduce((acc, c) => acc + Number(c.quota || 0), 0);
+  const totalSold = _catList.reduce((acc, c) => acc + Number(c.sold || 0), 0);
+  const totalRem = Math.max(0, totalQuota - totalSold);
+
+  document.getElementById('cat-total-quota').textContent = totalQuota.toLocaleString('id-ID');
+  document.getElementById('cat-total-sold').textContent = totalSold.toLocaleString('id-ID');
+  document.getElementById('cat-total-rem').textContent = totalRem.toLocaleString('id-ID');
+
+  renderCategoryTable(admin, _catList, document.getElementById('search-cat').value);
+}
+
+function renderCategoryTable(admin, list, keyword = '') {
+  const q = (keyword || '').trim().toLowerCase();
+  const filtered = q ? list.filter(c => (c.name || '').toLowerCase().includes(q)) : list;
+  const tbody = document.getElementById('cat-table-body');
+  document.getElementById('cat-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman 1 dari 1`;
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="muted">Tidak ada kategori tiket ditemukan.</td></tr>`;
+    return;
+  }
+
+  const fmtRange = (s, e) => {
+    if (!s && !e) return 'Belum dijadwalkan';
+    const opts = { day: '2-digit', month: 'short', year: 'numeric' };
+    const d1 = s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '?';
+    const d2 = e ? new Date(e).toLocaleDateString('id-ID', opts) : '?';
+    return `${d1} – ${d2}`;
+  };
+
+  tbody.innerHTML = filtered.map(c => {
+    const quota = Number(c.quota || 0);
+    const sold = Number(c.sold || 0);
+    const rem = Math.max(0, quota - sold);
+
+    let statusHtml = '<span style="color:#22c55e">Tersedia</span>';
+    if (quota === 0 && !c.sale_start) {
+      statusHtml = '<span style="color:#f59e0b">Draft</span>';
+    } else if (rem === 0) {
+      statusHtml = '<span class="muted">Sold out</span>';
+    } else if (quota > 0 && rem / quota <= 0.15) {
+      statusHtml = '<span style="color:#f59e0b">Hampir habis</span>';
+    }
+
+    const canDelete = sold === 0;
+    const delStyle = canDelete
+      ? 'background:none;border:0;color:var(--text-2);font-size:12px;padding:0;text-align:left;cursor:pointer'
+      : 'background:none;border:0;color:var(--text-2);opacity:0.45;font-size:12px;padding:0;text-align:left;cursor:not-allowed';
+
+    return `
+      <tr>
+        <td style="font-weight:500">${esc(c.name)}</td>
+        <td>${rupiah(c.price)}</td>
+        <td>${quota.toLocaleString('id-ID')}</td>
+        <td>${sold.toLocaleString('id-ID')}</td>
+        <td>${rem.toLocaleString('id-ID')}</td>
+        <td class="muted">${fmtRange(c.sale_start, c.sale_end)}</td>
+        <td>${statusHtml}</td>
+        <td>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <button type="button" class="cat-act-edit" data-id="${c.category_id}" style="background:none;border:0;color:var(--text);font-size:12px;padding:0;text-align:left;cursor:pointer">Edit</button>
+            <button type="button" class="cat-act-del" data-id="${c.category_id}" data-name="${esc(c.name)}" data-sold="${sold}" style="${delStyle}">Hapus</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('.cat-act-edit').forEach(btn => {
+    btn.onclick = () => {
+      const item = _catList.find(x => String(x.category_id) === btn.dataset.id);
+      if (item) openCategoryModal(admin, item);
+    };
+  });
+
+  tbody.querySelectorAll('.cat-act-del').forEach(btn => {
+    btn.onclick = () => {
+      const soldCount = Number(btn.dataset.sold || 0);
+      if (soldCount > 0) {
+        toast(`Kategori "${btn.dataset.name}" tidak dapat dihapus karena sudah terjual ${soldCount.toLocaleString('id-ID')} tiket.`, 'error');
+        return;
+      }
+      confirmModal({
+        title: `HAPUS KATEGORI ${btn.dataset.name.toUpperCase()}?`,
+        text: 'Kategori ini belum memiliki penjualan dan akan dihapus permanen.',
+        yes: 'Hapus',
+        onYes: async () => {
+          const res = await backend('delete_ticket_category', [admin.user_id, Number(btn.dataset.id)], null);
+          if (!res || !res.ok) {
+            toast((res && res.message) || 'Gagal menghapus kategori.', 'error');
+            return;
+          }
+          toast('Kategori tiket berhasil dihapus.');
+          await loadAdminCategories(admin);
+        }
+      });
+    };
+  });
+}
+
+function openCategoryModal(admin, item = null) {
+  const isEdit = Boolean(item);
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `
+    <form class="modal modal-lg" id="cat-form" novalidate>
+      <h3>${isEdit ? 'EDIT KATEGORI TIKET' : 'TAMBAH KATEGORI BARU'}</h3>
+      <div class="field">
+        <label for="c-name">Nama kategori</label>
+        <input class="input" id="c-name" value="${esc(item ? item.name : '')}" placeholder="Contoh: Early Access / VIP" required>
+      </div>
+      <div class="field">
+        <label for="c-desc">Deskripsi area / fasilitas</label>
+        <input class="input" id="c-desc" value="${esc(item ? (item.description || '') : '')}" placeholder="Contoh: Akses masuk lebih awal · area berdiri">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="field">
+          <label for="c-price">Harga tiket (Rp)</label>
+          <input class="input" id="c-price" type="number" min="0" step="1000" value="${item ? Number(item.price) : 750000}" required>
+        </div>
+        <div class="field">
+          <label for="c-quota">Kuota tiket ${isEdit ? `(min. ${item.sold} terjual)` : ''}</label>
+          <input class="input" id="c-quota" type="number" min="${isEdit ? item.sold : 0}" value="${item ? Number(item.quota) : 0}" required>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="field">
+          <label for="c-start">Mulai penjualan (opsional)</label>
+          <input class="input" id="c-start" type="date" value="${item && item.sale_start ? String(item.sale_start).substring(0, 10) : ''}">
+        </div>
+        <div class="field">
+          <label for="c-end">Akhir penjualan (opsional)</label>
+          <input class="input" id="c-end" type="date" value="${item && item.sale_end ? String(item.sale_end).substring(0, 10) : ''}">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="c-cancel">Batal</button>
+        <button type="submit" class="btn btn-primary" id="c-save">${isEdit ? 'Simpan Perubahan' : 'Simpan Kategori'}</button>
+      </div>
+    </form>`;
+
+  ov.querySelector('#c-cancel').onclick = () => ov.remove();
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  ov.querySelector('#cat-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      category_id: item ? item.category_id : null,
+      name: ov.querySelector('#c-name').value.trim(),
+      description: ov.querySelector('#c-desc').value.trim(),
+      price: Number(ov.querySelector('#c-price').value),
+      quota: Number(ov.querySelector('#c-quota').value),
+      sale_start: ov.querySelector('#c-start').value || null,
+      sale_end: ov.querySelector('#c-end').value || null
+    };
+
+    const saveBtn = ov.querySelector('#c-save');
+    saveBtn.classList.add('is-loading');
+    saveBtn.disabled = true;
+
+    const res = await backend('save_ticket_category', [admin.user_id, payload], null);
+
+    saveBtn.classList.remove('is-loading');
+    saveBtn.disabled = false;
+
+    if (!res || !res.ok) {
+      toast((res && res.message) || 'Gagal menyimpan kategori.', 'error');
+      return;
+    }
+
+    ov.remove();
+    toast(res.message || 'Kategori berhasil disimpan!');
+    await loadAdminCategories(admin);
+  };
+
+  document.body.appendChild(ov);
+  ov.querySelector('#c-name').focus();
 }
