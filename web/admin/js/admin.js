@@ -1,3 +1,97 @@
+/* ----- Komponen Sidebar Terpusat ----- */
+function renderAdminLayout(activeMenu) {
+  const side = document.getElementById('admin-sidebar');
+  if (!side) return;
+
+  const admin = getAdminSession();
+  const displayName = (admin && admin.full_name) || 'Admin Publikasi';
+
+  const icoDash = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>`;
+  const icoAnn = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l18-5v12L3 13v-2z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path></svg>`;
+  const icoUser = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+
+  const menus = [
+    { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: icoDash },
+    { id: 'konser', label: '— Konser', href: 'concert.html' },
+    { id: 'kategori', label: '— Kategori Tiket', locked: true },
+    { id: 'pesanan', label: '— Pesanan', locked: true },
+    { id: 'pembayaran', label: '— Pembayaran', locked: true },
+    { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
+    { id: 'voucher', label: '— Voucher', locked: true },
+    { id: 'checkin', label: '— Check-in', locked: true },
+    { id: 'laporan', label: '— Laporan', locked: true },
+    { id: 'pengguna', label: '— Pengguna', locked: true },
+    { id: 'log', label: '— Log Aktivitas', locked: true }
+  ];
+
+  const navHtml = menus.map(m => {
+    const cls = [
+      'adm-nav-item',
+      activeMenu === m.id ? 'active' : '',
+      m.locked ? 'locked' : ''
+    ].filter(Boolean).join(' ');
+    const attrs = m.href ? `data-href="${m.href}"` : (m.action ? `data-action="${m.action}"` : '');
+    return `<button type="button" class="${cls}" ${attrs}>${m.icon || ''}<span>${m.label}</span></button>`;
+  }).join('');
+
+  side.innerHTML = `
+    <div class="adm-side-top">
+      <div class="adm-logo-box">
+        <div class="adm-logo">THE WEEKND</div>
+        <div class="adm-sublogo">PANEL PANITIA / JAKARTA 2027</div>
+      </div>
+
+      <div class="adm-concert-pill">
+        <div class="t" id="side-concert-title">AFTER HOURS TIL DAWN</div>
+        <div class="d" id="side-concert-meta">14 Agu 2027 · On sale</div>
+      </div>
+
+      <nav class="adm-nav" aria-label="Menu Admin">${navHtml}</nav>
+    </div>
+
+    <div class="adm-side-bot">
+      <p class="adm-hint">Seluruh modul admin · Prototype simulasi</p>
+      <div class="adm-user">
+        <div class="adm-user-ico">${icoUser}</div>
+        <div>
+          <div class="adm-user-name" id="side-admin-name">${esc(displayName)}</div>
+          <div class="adm-user-role">Tim publikasi</div>
+        </div>
+      </div>
+      <button type="button" class="adm-logout" id="admin-logout">Keluar</button>
+    </div>`;
+
+  // Pasang event navigasi & logout
+  side.querySelectorAll('[data-href]').forEach(btn => {
+    btn.onclick = () => { window.location.href = btn.dataset.href; };
+  });
+  side.querySelectorAll('.locked').forEach(btn => {
+    btn.onclick = () => toast('Modul ini dijadwalkan pada tahap berikutnya.', 'warn');
+  });
+  const annBtn = side.querySelector('[data-action="ann"]');
+  if (annBtn) {
+    annBtn.onclick = () => {
+      if (typeof openAnnouncementModal === 'function' && activeMenu === 'dashboard') {
+        openAnnouncementModal();
+      } else {
+        window.location.href = 'dashboard.html';
+      }
+    };
+  }
+  const topName = document.getElementById('top-admin-name');
+  if (topName) topName.textContent = displayName;
+
+  document.getElementById('admin-logout').onclick = () => confirmModal({
+    title: 'KELUAR PANEL PANITIA?',
+    text: 'Sesi admin akan diakhiri.',
+    yes: 'Keluar',
+    onYes: async () => {
+      await backend('admin_logout', [], null);
+      Auth.clear();
+      window.location.href = 'login.html';
+    }
+  });
+}
 /* ===== Admin Panel Logic (A1 Login & A2 Dashboard) ===== */
 let _adminUser = null;
 let _dashData = null;
@@ -70,26 +164,7 @@ async function initAdminDashboard() {
     return;
   }
 
-  const displayName = _adminUser.full_name || 'Admin Publikasi';
-  document.getElementById('side-admin-name').textContent = displayName;
-  document.getElementById('top-admin-name').textContent = displayName;
-
-  document.getElementById('admin-logout').onclick = () => {
-    confirmModal({
-      title: 'KELUAR PANEL PANITIA?',
-      text: 'Sesi admin akan diakhiri dan kamu akan kembali ke halaman login admin.',
-      yes: 'Keluar',
-      onYes: () => {
-        Auth.clear();
-        window.location.href = 'login.html';
-      }
-    });
-  };
-
-  // Menu tahap berikutnya
-  document.querySelectorAll('.adm-nav-item.locked').forEach((btn) => {
-    btn.onclick = () => toast('Menu ini dijadwalkan pada tahap pengembangan berikutnya.', 'warn');
-  });
+  renderAdminLayout('dashboard');
 
   // Filter 7 hari / 30 hari
   document.querySelectorAll('#chart-range button').forEach((btn) => {
@@ -108,7 +183,6 @@ async function initAdminDashboard() {
 
   // Modal buat pengumuman
   document.getElementById('btn-new-ann').onclick = openAnnouncementModal;
-  document.getElementById('nav-open-ann').onclick = openAnnouncementModal;
   document.getElementById('btn-manage-ann').onclick = openAnnouncementModal;
 
   await loadDashboardData();
@@ -300,4 +374,105 @@ function openAnnouncementModal() {
   };
 
   document.body.appendChild(ov);
+}
+/* ----- A3: Kelola Konser ----- */
+async function initAdminConcert() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+  
+ renderAdminLayout('konser');
+  const res = await backend('get_admin_concert_detail', [admin.user_id], null);
+  if (!res || !res.ok) { toast('Gagal memuat detail konser', 'error'); return; }
+
+  const c = res.concert;
+  const v = c.venues || {};
+  
+  document.getElementById('concert-title').textContent = c.title || 'THE WEEKND';
+  document.getElementById('concert-desc').textContent = c.description || '-';
+  document.getElementById('lbl-status').textContent = (c.status || 'on_sale').replace('_', ' ');
+  document.getElementById('val-date').textContent = c.concert_date ? new Date(c.concert_date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'}) : '-';
+  document.getElementById('val-gate').textContent = `${c.gate_open || '17:00'} / 20:00 WIB`;
+  document.getElementById('val-venue').textContent = `${v.name || 'Venue'} · ${v.city || 'Jakarta'}`;
+  document.getElementById('val-capacity').textContent = v.capacity ? `${Number(v.capacity).toLocaleString('id-ID')} penonton` : '15.500 penonton';
+
+  document.getElementById('btn-go-edit').onclick = () => window.location.href = 'concert-edit.html';
+  document.getElementById('btn-go-edit-2').onclick = () => window.location.href = 'concert-edit.html';
+}
+
+/* ----- A3e: Edit Konser ----- */
+async function initAdminConcertEdit() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+renderAdminLayout('konser');
+  const res = await backend('get_admin_concert_detail', [admin.user_id], null);
+  if (!res || !res.ok) { toast('Gagal memuat data edit konser', 'error'); return; }
+
+  const c = res.concert;
+  const venues = res.venues || [];
+
+  document.getElementById('f-title').value = c.title || '';
+  document.getElementById('f-desc').value = c.description || '';
+  document.getElementById('f-date').value = c.concert_date ? c.concert_date.substring(0, 10) : '';
+  document.getElementById('f-gate').value = c.gate_open || '';
+  document.getElementById('f-status').value = c.status || 'on_sale';
+
+  const venueSelect = document.getElementById('f-venue');
+  venueSelect.innerHTML = venues.map(v => `<option value="${v.venue_id}" ${v.venue_id === c.venue_id ? 'selected' : ''}>${esc(v.name)} · ${esc(v.city)}</option>`).join('');
+
+  // Tombol Venue Baru
+  document.getElementById('btn-new-venue').onclick = () => {
+    modal({
+      title: 'TAMBAH VENUE BARU',
+      text: 'Masukkan detail venue konser.',
+      actions: [
+        {label: 'Batal'},
+        {label: 'Simpan Venue', primary: true, onClick: async () => {
+          // Buat prompt sederhana atau form modal penambahan venue
+          const name = prompt('Nama Venue (contoh: GBK Madya):');
+          if (!name) return;
+          const city = prompt('Kota:', 'Jakarta') || 'Jakarta';
+          const cap = Number(prompt('Kapasitas Penonton:', '15000')) || 15000;
+          
+          const addRes = await backend('create_venue', [admin.user_id, {name, city, capacity: cap}], null);
+          if (addRes && addRes.ok) {
+            toast('Venue berhasil ditambahkan!');
+            initAdminConcertEdit();
+          } else {
+            toast((addRes && addRes.message) || 'Gagal menambah venue', 'error');
+          }
+        }}
+      ]
+    });
+  };
+
+  // Submit form edit
+  document.getElementById('concert-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const saveBtn = document.getElementById('btn-save');
+    saveBtn.classList.add('is-loading');
+    saveBtn.disabled = true;
+
+    const payload = {
+      concert_id: c.concert_id,
+      title: document.getElementById('f-title').value,
+      description: document.getElementById('f-desc').value,
+      concert_date: document.getElementById('f-date').value + 'T20:00:00+07',
+      gate_open: document.getElementById('f-gate').value,
+      venue_id: Number(venueSelect.value),
+      status: document.getElementById('f-status').value
+    };
+
+    const updateRes = await backend('update_concert_info', [admin.user_id, payload], null);
+    saveBtn.classList.remove('is-loading');
+    saveBtn.disabled = false;
+
+    if (!updateRes || !updateRes.ok) {
+      toast((updateRes && updateRes.message) || 'Gagal menyimpan perubahan.', 'error');
+      return;
+    }
+
+    toast('Informasi konser berhasil disimpan!');
+    setTimeout(() => window.location.href = 'concert.html', 1000);
+  };
 }

@@ -623,5 +623,71 @@ def create_announcement(user_id, title, content, is_published=True):
     except Exception as exc:
         return _err(exc, "Gagal menyimpan pengumuman")
 
+@eel.expose
+def get_admin_concert_detail(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        concert_res = supabase.table("concerts").select("*, venues(*)").order("concert_date").limit(1).execute()
+        venues_res = supabase.table("venues").select("*").order("name").execute()
+        
+        if not concert_res.data:
+            return {"ok": False, "message": "Data konser tidak ditemukan."}
+            
+        return {
+            "ok": True,
+            "concert": concert_res.data[0],
+            "venues": venues_res.data or []
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal memuat detail konser")
+
+
+@eel.expose
+def update_concert_info(user_id, data):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    data = data or {}
+    try:
+        concert_id = data.get("concert_id")
+        if not concert_id:
+            return {"ok": False, "message": "ID Konser tidak valid."}
+            
+        payload = {
+            "title": (data.get("title") or "").strip(),
+            "description": (data.get("description") or "").strip(),
+            "concert_date": data.get("concert_date"),
+            "gate_open": data.get("gate_open"),
+            "status": data.get("status"),
+            "venue_id": int(data.get("venue_id")) if data.get("venue_id") else None
+        }
+        
+        supabase.table("concerts").update(payload).eq("concert_id", concert_id).execute()
+        return {"ok": True, "message": "Informasi konser berhasil diperbarui."}
+    except Exception as exc:
+        return _err(exc, "Gagal memperbarui informasi konser")
+
+
+@eel.expose
+def create_venue(user_id, data):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    data = data or {}
+    name = (data.get("name") or "").strip()
+    city = (data.get("city") or "").strip()
+    if len(name) < 3:
+        return {"ok": False, "message": "Nama venue minimal 3 karakter."}
+    try:
+        payload = {
+            "name": name,
+            "city": city or "Jakarta",
+            "address": data.get("address"),
+            "capacity": int(data.get("capacity") or 15000)
+        }
+        res = supabase.table("venues").insert(payload).execute()
+        return {"ok": True, "venue": res.data[0] if res.data else payload}
+    except Exception as exc:
+        return _err(exc, "Gagal menambahkan venue baru")
+
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))

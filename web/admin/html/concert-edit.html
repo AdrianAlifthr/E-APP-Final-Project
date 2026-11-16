@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Edit Konser · Panel Panitia</title>
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <!-- Sidebar -->
+    <aside class="adm-side" id="admin-sidebar"></aside>
+
+    <!-- Main Area -->
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <div>
+          <div class="adm-crumb">Panel Panitia / Konser / Edit</div>
+          <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+        </div>
+        <div class="adm-top-actions">
+          <span style="font-size:13px" id="top-admin-name">Admin Publikasi</span>
+        </div>
+      </header>
+
+      <section class="adm-hero-row">
+        <div>
+          <p class="eyebrow">KONSER / EDIT</p>
+          <h1 class="adm-title">ATUR PANGGUNGNYA.</h1>
+          <p class="adm-stamp">Perubahan informasi menjadi acuan pengunjung dan tim panitia.</p>
+        </div>
+      </section>
+
+      <!-- Form Edit & Panel Samping (Mockup A3e) -->
+      <form class="dash-grid" id="concert-form" novalidate>
+        <div class="card box" style="gap:20px">
+          <div class="field">
+            <label for="f-title">Judul konser</label>
+            <input class="input" id="f-title" required>
+          </div>
+
+          <div class="field">
+            <label for="f-desc">Deskripsi konser</label>
+            <textarea class="textarea" id="f-desc" style="min-height:90px" required></textarea>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="field">
+              <label for="f-date">Tanggal konser</label>
+              <input class="input" id="f-date" type="date" required>
+            </div>
+            <div class="field">
+              <label for="f-gate">Jam gate open</label>
+              <input class="input" id="f-gate" type="text" placeholder="17:00" required>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="f-venue">Venue</label>
+            <select class="input" id="f-venue" style="background:var(--raised);cursor:pointer"></select>
+          </div>
+          <button type="button" class="btn btn-outline" id="btn-new-venue" style="width:fit-content">+ Venue Baru</button>
+
+          <div class="field">
+            <label for="f-status">Status konser</label>
+            <select class="input" id="f-status" style="background:var(--raised);cursor:pointer">
+              <option value="upcoming">Upcoming</option>
+              <option value="on_sale">On sale</option>
+              <option value="sold_out">Sold out</option>
+              <option value="finished">Finished</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:16px;margin-top:12px">
+            <button type="submit" class="btn btn-primary" style="flex:1" id="btn-save">Simpan Perubahan</button>
+            <button type="button" class="btn btn-outline" style="flex:1" onclick="window.location.href='concert.html'">Batal</button>
+          </div>
+        </div>
+
+        <!-- Kolom Kanan: Panduan Poster -->
+        <div style="display:flex;flex-direction:column;gap:20px">
+          <article class="poster" style="min-height:280px;justify-content:space-between">
+            <small>XO &nbsp;/&nbsp; JAKARTA 2027</small>
+            <p class="display" style="font-size:42px;line-height:0.96">AFTER HOURS<br>TIL DAWN</p>
+            <small>Poster gradient merah-hitam tanpa foto asli artis.</small>
+          </article>
+          <article class="card box" style="gap:12px">
+            <h3 style="font-family:var(--font-display);font-size:20px">PASTIKAN INFORMASI AKURAT</h3>
+            <p class="muted" style="font-size:13px">Tanggal, venue, dan gate open harus sama dengan informasi pada e-ticket dan pengumuman.</p>
+          </article>
+        </div>
+      </form>
+
+      <footer class="a1-foot" style="margin-top:32px">PROYEK AKADEMIK · DATA SIMULASI</footer>
+    </div>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminConcertEdit);</script>
+</body>
+</html>
