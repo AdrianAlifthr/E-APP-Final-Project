@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Panel Panitia · Login Admin</title>
+</head>
+<body class="admin-body">
+  <div class="a1-wrap">
+    <header class="a1-brand">THE WEEKND <span>/</span> PANEL PANITIA</header>
+
+    <main class="a1-grid">
+      <section class="a1-poster" aria-label="Panel Panitia">
+        <small>BEHIND EVERY UNFORGETTABLE NIGHT.</small>
+        <h1 class="a1-poster-title">PANEL<br>PANITIA.</h1>
+        <p class="a1-poster-sub">
+          Publikasi yang tepat.<br>
+          Pengalaman konser yang tak terlupakan.
+        </p>
+      </section>
+
+      <form class="card a1-card" id="admin-login-form" novalidate>
+        <p class="eyebrow">AKSES KHUSUS TIM PUBLIKASI</p>
+        <h2 class="a1-title">SELAMAT DATANG<br>DI BALIK PANGGUNG.</h2>
+        <p class="muted" style="font-size:14px">Masuk dengan akun admin untuk mengelola informasi konser.</p>
+
+        <div id="admin-banner" class="banner" hidden></div>
+
+        <div class="field" id="f-email">
+          <label for="email">Email admin</label>
+          <input class="input" id="email" type="email" placeholder="publikasi@afterhours.example" autocomplete="email">
+          <p class="help"></p>
+        </div>
+
+        <div class="field" id="f-password">
+          <label for="password">Password</label>
+          <div class="input-wrap">
+            <input class="input" id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+            <button type="button" class="eye" id="toggle-pw" aria-label="Tampilkan password">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <p class="help"></p>
+        </div>
+
+        <button class="btn btn-primary btn-block" type="submit" id="admin-submit">Masuk →</button>
+        <p class="muted" style="font-size:11px">Hanya akun dengan role admin di Supabase yang dapat masuk.</p>
+        <a class="btn btn-outline btn-block" href="../../index.html">Lihat sisi pengunjung ↗</a>
+      </form>
+    </main>
+
+    <footer class="a1-foot">PROYEK AKADEMIK · DATA SIMULASI · BUKAN PANEL KONSER RESMI</footer>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminLogin);</script>
+</body>
+</html>

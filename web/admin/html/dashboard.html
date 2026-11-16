@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Dashboard Publikasi · Panel Panitia</title>
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <!-- Sidebar -->
+    <aside class="adm-side">
+      <div class="adm-side-top">
+        <div class="adm-logo-box">
+          <div class="adm-logo">THE WEEKND</div>
+          <div class="adm-sublogo">PANEL PANITIA / JAKARTA 2027</div>
+        </div>
+
+        <div class="adm-concert-pill">
+          <div class="t">AFTER HOURS TIL DAWN</div>
+          <div class="d" id="side-concert-date">14 Agu 2027 · On sale</div>
+        </div>
+
+        <nav class="adm-nav" aria-label="Menu Admin">
+          <button class="adm-nav-item active" data-menu="dashboard">Dashboard</button>
+          <button class="adm-nav-item locked" data-menu="konser">— Konser</button>
+          <button class="adm-nav-item locked" data-menu="kategori">— Kategori Tiket</button>
+          <button class="adm-nav-item locked" data-menu="pesanan">— Pesanan</button>
+          <button class="adm-nav-item locked" data-menu="pembayaran">— Pembayaran</button>
+          <button class="adm-nav-item" id="nav-open-ann">Pengumuman</button>
+          <button class="adm-nav-item locked" data-menu="voucher">— Voucher</button>
+          <button class="adm-nav-item locked" data-menu="checkin">— Check-in</button>
+          <button class="adm-nav-item locked" data-menu="laporan">— Laporan</button>
+          <button class="adm-nav-item locked" data-menu="pengguna">— Pengguna</button>
+          <button class="adm-nav-item locked" data-menu="log">— Log Aktivitas</button>
+        </nav>
+      </div>
+
+      <div class="adm-side-bot">
+        <p class="adm-hint">Menu selain Dashboard dan Pengumuman: tahap berikutnya.</p>
+        <div class="adm-user">
+          <div class="adm-user-ico">👤</div>
+          <div>
+            <div class="adm-user-name" id="side-admin-name">Admin Publikasi</div>
+            <div class="adm-user-role">Tim publikasi</div>
+          </div>
+        </div>
+        <button class="adm-logout" id="admin-logout">Keluar</button>
+      </div>
+    </aside>
+
+    <!-- Main Area -->
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <div>
+          <div class="adm-crumb">Panel Panitia / Dashboard</div>
+          <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+        </div>
+        <div class="adm-top-actions">
+          <div class="adm-search-wrap">
+            <svg class="adm-search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input class="adm-search" id="search-ann" type="search" placeholder="Cari pengumuman...">
+          </div>
+          <button class="adm-bell" title="Notifikasi" aria-label="Notifikasi">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </button>
+          <span style="font-size:13px" id="top-admin-name">Admin Publikasi</span>
+        </div>
+      </header>
+
+      <section class="adm-hero-row">
+        <div>
+          <p class="eyebrow">PANEL PUBLIKASI / KONSER AKTIF</p>
+          <h1 class="adm-title">DI BALIK MALAM TERBAIK.</h1>
+          <p class="adm-stamp" id="dash-timestamp">Memuat ringkasan data...</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-ann">+ Buat Pengumuman</button>
+      </section>
+
+      <!-- 4 Kartu KPI -->
+      <section class="kpi-grid">
+        <article class="card kpi-card">
+          <span class="kpi-lbl">Total tiket terjual</span>
+          <span class="kpi-val" id="kpi-sold">0</span>
+          <span class="kpi-sub" id="kpi-sold-sub">dari 0 tiket · 0%</span>
+        </article>
+        <article class="card kpi-card">
+          <span class="kpi-lbl">Total pendapatan</span>
+          <span class="kpi-val" id="kpi-rev">RP0</span>
+          <span class="kpi-sub" id="kpi-rev-sub">Rp0 · Lunas</span>
+        </article>
+        <article class="card kpi-card">
+          <span class="kpi-lbl">Pesanan pending</span>
+          <span class="kpi-val warn" id="kpi-pending">0</span>
+          <span class="kpi-sub">Menunggu pembayaran</span>
+        </article>
+        <article class="card kpi-card">
+          <span class="kpi-lbl">Tiket sudah check-in</span>
+          <span class="kpi-val" id="kpi-checkin">0</span>
+          <span class="kpi-sub">Dibuka 14 Agustus 2027</span>
+        </article>
+      </section>
+
+      <!-- Grid Konten Utama -->
+      <section class="dash-grid">
+        <div class="dash-col">
+          <!-- Grafik Penjualan Harian -->
+          <article class="card box">
+            <div class="box-head">
+              <div>
+                <h2 class="box-title">PENJUALAN HARIAN</h2>
+                <p class="box-sub" id="chart-sub">0 tiket / 7 hari terakhir</p>
+              </div>
+              <div class="seg" id="chart-range">
+                <button type="button" class="active" data-days="7">7 hari</button>
+                <button type="button" data-days="30">30 hari</button>
+              </div>
+            </div>
+            <svg class="chart-svg" id="sales-chart" viewBox="0 0 640 210" preserveAspectRatio="none"></svg>
+          </article>
+
+          <!-- Tabel Pesanan Terbaru -->
+          <article class="card box">
+            <div>
+              <h2 class="box-title">PESANAN TERBARU</h2>
+              <p class="box-sub">5 transaksi terakhir · Data Supabase</p>
+            </div>
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>KODE</th>
+                  <th>PEMBELI</th>
+                  <th>TOTAL</th>
+                  <th>STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="recent-orders-body">
+                <tr><td colspan="4" class="muted">Memuat pesanan...</td></tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+
+        <div class="dash-col">
+          <!-- Sisa Kuota -->
+          <article class="card box">
+            <div>
+              <h2 class="box-title">SISA KUOTA</h2>
+              <p class="box-sub" id="quota-sub">0 tiket masih tersedia</p>
+            </div>
+            <div id="quota-list" style="display:flex;flex-direction:column;gap:14px"></div>
+          </article>
+
+          <!-- Pengumuman Terakhir -->
+          <article class="card box">
+            <h2 class="box-title">PENGUMUMAN TERAKHIR</h2>
+            <div class="ann-list" id="ann-list">
+              <p class="muted" style="font-size:13px">Memuat pengumuman...</p>
+            </div>
+            <button class="btn btn-outline btn-block" id="btn-manage-ann">Kelola pengumuman →</button>
+          </article>
+        </div>
+      </section>
+
+      <footer class="a1-foot">PROYEK AKADEMIK · DATA TERHUBUNG KE SUPABASE</footer>
+    </div>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminDashboard);</script>
+</body>
+</html>
