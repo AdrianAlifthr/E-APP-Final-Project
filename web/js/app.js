@@ -4,7 +4,8 @@ const ROUTES = {
   U5:'holders.html', U6:'checkout.html', U7:'payment.html', U8:'success.html',
   U9:'eticket.html', U10:'orders.html', U11:'order-detail.html', U12:'profile.html',
   U13:'news.html', U13d:'news-detail.html', U14:'faq.html',
-  A1:'admin/html/login.html', A2:'admin/html/dashboard.html', A3:'admin/html/concert.html'
+  A1:'admin/html/login.html', A2:'admin/html/dashboard.html', A3:'admin/html/concert.html',
+  A4:'admin/html/categories.html'
 };
 
 /* Data cadangan bila Python (Eel) tidak aktif. Ganti dengan Supabase di main.py */

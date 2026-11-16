@@ -689,5 +689,89 @@ def create_venue(user_id, data):
     except Exception as exc:
         return _err(exc, "Gagal menambahkan venue baru")
 
+@eel.expose
+def get_admin_ticket_categories(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        cats = get_ticket_categories()
+        return {"ok": True, "categories": cats}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat kategori tiket")
+
+
+@eel.expose
+def save_ticket_category(user_id, data):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    data = data or {}
+    cat_id = data.get("category_id")
+    name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip()
+    price = float(data.get("price") or 0)
+    quota = int(data.get("quota") or 0)
+    sale_start = data.get("sale_start") or None
+    sale_end = data.get("sale_end") or None
+
+    if len(name) < 2:
+        return {"ok": False, "message": "Nama kategori minimal 2 karakter."}
+    if price < 0 or quota < 0:
+        return {"ok": False, "message": "Harga dan kuota tidak boleh bernilai negatif."}
+
+    try:
+        if cat_id:
+            existing = supabase.table("ticket_categories").select("sold").eq("category_id", cat_id).limit(1).execute().data
+            if not existing:
+                return {"ok": False, "message": "Kategori tiket tidak ditemukan."}
+            sold = int(existing[0].get("sold") or 0)
+            if quota < sold:
+                return {"ok": False, "message": f"Kuota tidak boleh lebih kecil dari jumlah terjual ({sold} tiket)."}
+
+            payload = {
+                "name": name,
+                "description": description,
+                "price": price,
+                "quota": quota,
+                "sale_start": sale_start,
+                "sale_end": sale_end,
+            }
+            supabase.table("ticket_categories").update(payload).eq("category_id", cat_id).execute()
+            return {"ok": True, "message": "Kategori tiket berhasil diperbarui."}
+        else:
+            concert = supabase.table("concerts").select("concert_id").order("concert_date").limit(1).execute().data
+            concert_id = concert[0]["concert_id"] if concert else 1
+            payload = {
+                "concert_id": concert_id,
+                "name": name,
+                "description": description,
+                "price": price,
+                "quota": quota,
+                "sold": 0,
+                "sale_start": sale_start,
+                "sale_end": sale_end,
+            }
+            supabase.table("ticket_categories").insert(payload).execute()
+            return {"ok": True, "message": "Kategori tiket baru berhasil ditambahkan."}
+    except Exception as exc:
+        return _err(exc, "Gagal menyimpan kategori tiket")
+
+
+@eel.expose
+def delete_ticket_category(user_id, category_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        existing = supabase.table("ticket_categories").select("sold,name").eq("category_id", category_id).limit(1).execute().data
+        if not existing:
+            return {"ok": False, "message": "Kategori tidak ditemukan."}
+        sold = int(existing[0].get("sold") or 0)
+        if sold > 0:
+            return {"ok": False, "message": "Kategori dengan penjualan tidak dapat dihapus."}
+
+        supabase.table("ticket_categories").delete().eq("category_id", category_id).execute()
+        return {"ok": True, "message": "Kategori tiket berhasil dihapus."}
+    except Exception as exc:
+        return _err(exc, "Gagal menghapus kategori tiket")
+
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))
