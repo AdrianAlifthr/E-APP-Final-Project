@@ -458,6 +458,170 @@ def change_password(user_id, old_password, new_password):
     except Exception:
         return {"ok": False, "field": "old", "message": "Password lama salah atau password gagal diperbarui."}
 
+# ---------------- ADMIN PANEL (A1 & A2) ----------------
+def _require_admin(user_id):
+    user = _user_by_id(user_id)
+    if not user or user.get("role") != "admin" or not user.get("is_active", True):
+        return None
+    return user
+
+
+def _format_idr_short(amount):
+    val = float(amount or 0)
+    if val >= 1_000_000_000:
+        return f"RP{val / 1_000_000_000:,.2f} M".replace(".", ",")
+    if val >= 1_000_000:
+        return f"RP{val / 1_000_000:,.2f} JT".replace(".", ",")
+    return f"RP{int(val):,}".replace(",", ".")
+
+
+@eel.expose
+def admin_login(email, password):
+    res = login_user(email, password)
+    if not res.get("ok"):
+        return res
+    user = res.get("user") or {}
+    if user.get("role") != "admin":
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+        return {"ok": False, "message": "Akses ditolak. Akun ini bukan Admin Panitia."}
+    return {"ok": True, "user": user}
+
+
+@eel.expose
+def admin_logout():
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@eel.expose
+def get_admin_dashboard(user_id, days=7):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Sesi admin tidak valid atau akses ditolak."}
+    try:
+        days = 30 if int(days) == 30 else 7
+        concert = get_concert_info()
+        cats = get_ticket_categories()
+
+        total_quota = sum(int(c.get("quota") or 0) for c in cats)
+        total_sold = sum(int(c.get("sold") or 0) for c in cats)
+        remaining_total = max(0, total_quota - total_sold)
+
+        orders_raw = (
+            supabase.table("orders")
+            .select("order_id,order_code,user_id,total_amount,status,created_at,users!user_id(full_name)")
+            .order("created_at", desc=True)
+            .execute()
+            .data or []
+        )
+
+        paid_orders = [o for o in orders_raw if o.get("status") == "paid"]
+        pending_orders = [o for o in orders_raw if o.get("status") == "pending"]
+        total_revenue = sum(float(o.get("total_amount") or 0) for o in paid_orders)
+
+        tickets_raw = supabase.table("tickets").select("ticket_id,status").execute().data or []
+        checked_in = sum(1 for t in tickets_raw if t.get("status") == "used")
+
+        from datetime import timedelta
+        now_wib = datetime.now(timezone(timedelta(hours=7)))
+        date_keys = [(now_wib - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
+        daily_map = {k: 0 for k in date_keys}
+
+        paid_ids = [o["order_id"] for o in paid_orders]
+        order_date_map = {}
+        for o in paid_orders:
+            try:
+                dt = datetime.fromisoformat(str(o["created_at"]).replace("Z", "+00:00")).astimezone(timezone(timedelta(hours=7)))
+                order_date_map[o["order_id"]] = dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        if paid_ids:
+            items_raw = supabase.table("order_items").select("order_id,quantity").in_("order_id", paid_ids).execute().data or []
+            for it in items_raw:
+                d_key = order_date_map.get(it["order_id"])
+                if d_key in daily_map:
+                    daily_map[d_key] += int(it.get("quantity") or 0)
+
+        chart = [
+            {"date": k, "label": datetime.strptime(k, "%Y-%m-%d").strftime("%d %b"), "sold": daily_map[k]}
+            for k in date_keys
+        ]
+
+        recent_orders = [
+            {
+                "order_id": o["order_id"],
+                "order_code": o["order_code"],
+                "buyer_name": (o.get("users") or {}).get("full_name") or "Pengunjung",
+                "total": float(o.get("total_amount") or 0),
+                "status": o.get("status", "pending"),
+            }
+            for o in orders_raw[:5]
+        ]
+
+        ann_raw = (
+            supabase.table("announcements")
+            .select("announcement_id,title,content,is_published,published_at,created_at")
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+            .data or []
+        )
+
+        return {
+            "ok": True,
+            "concert": concert,
+            "kpi": {
+                "total_sold": total_sold,
+                "total_quota": total_quota,
+                "sold_pct": round((total_sold / total_quota * 100), 2) if total_quota else 0,
+                "total_revenue": total_revenue,
+                "revenue_short": _format_idr_short(total_revenue),
+                "pending_count": len(pending_orders),
+                "checked_in": checked_in,
+                "remaining_total": remaining_total,
+            },
+            "categories": cats,
+            "chart": chart,
+            "chart_total": sum(x["sold"] for x in chart),
+            "recent_orders": recent_orders,
+            "announcements": ann_raw,
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal memuat dashboard admin")
+
+
+@eel.expose
+def create_announcement(user_id, title, content, is_published=True):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    title = (title or "").strip()
+    content = (content or "").strip()
+    if len(title) < 5:
+        return {"ok": False, "message": "Judul pengumuman minimal 5 karakter."}
+    if len(content) < 10:
+        return {"ok": False, "message": "Isi pengumuman minimal 10 karakter."}
+    try:
+        concert = supabase.table("concerts").select("concert_id").order("concert_date").limit(1).execute().data
+        concert_id = concert[0]["concert_id"] if concert else 1
+        now_iso = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "concert_id": concert_id,
+            "author_id": str(user_id),
+            "title": title,
+            "content": content,
+            "is_published": bool(is_published),
+            "published_at": now_iso if is_published else None,
+        }
+        res = supabase.table("announcements").insert(payload).execute()
+        return {"ok": True, "item": res.data[0] if res.data else payload}
+    except Exception as exc:
+        return _err(exc, "Gagal menyimpan pengumuman")
 
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))
