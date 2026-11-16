@@ -4,7 +4,7 @@ const ROUTES = {
   U5:'holders.html', U6:'checkout.html', U7:'payment.html', U8:'success.html',
   U9:'eticket.html', U10:'orders.html', U11:'order-detail.html', U12:'profile.html',
   U13:'news.html', U13d:'news-detail.html', U14:'faq.html',
-  A1:'admin/html/login.html', A2:'admin/html/dashboard.html'
+  A1:'admin/html/login.html', A2:'admin/html/dashboard.html', A3:'admin/html/concert.html'
 };
 
 /* Data cadangan bila Python (Eel) tidak aktif. Ganti dengan Supabase di main.py */
@@ -16,9 +16,9 @@ const FALLBACK_CATEGORIES = [
 ];
 
 const Auth = {
-  get(){ try { return JSON.parse(localStorage.getItem('twk_user')); } catch(e){ return null; } },
-  set(u){ localStorage.setItem('twk_user', JSON.stringify(u)); },
-  clear(){ localStorage.removeItem('twk_user'); }
+  get(){ try { return JSON.parse(sessionStorage.getItem('twk_user')); } catch(e){ return null; } },
+  set(u){ sessionStorage.setItem('twk_user', JSON.stringify(u)); },
+  clear(){ sessionStorage.removeItem('twk_user'); }
 };
 
 function esc(s){
