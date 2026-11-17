@@ -11,26 +11,17 @@ function renderAdminLayout(activeMenu) {
   const icoUser = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
 
   const menus = [
-    {
-      id: "dashboard",
-      label: "Dashboard",
-      href: "dashboard.html",
-      icon: icoDash,
-    },
-    { id: "konser", label: "— Konser", href: "concert.html" },
-    { id: "kategori", label: "— Kategori Tiket", href: "categories.html" },
-    { id: "pesanan", label: "— Pesanan", locked: true },
-    { id: "pembayaran", label: "— Pembayaran", locked: true },
-    { id: "pengumuman", label: "Pengumuman", action: "ann", icon: icoAnn },
-    {
-      id: "voucher",
-      label: "— Voucher",
-      href: "voucher.html",
-    },
-    { id: "checkin", label: "— Check-in", locked: true },
-    { id: "laporan", label: "— Laporan", locked: true },
-    { id: "pengguna", label: "— Pengguna", locked: true },
-    { id: "log", label: "— Log Aktivitas", locked: true },
+    { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: icoDash },
+    { id: 'konser', label: '— Konser', href: 'concert.html' },
+    { id: 'kategori', label: '— Kategori Tiket', href: 'categories.html' },
+    { id: 'pesanan', label: '— Pesanan', href: 'orders.html' },
+    { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
+    { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
+    { id: 'voucher', label: '— Voucher', locked: true },
+    { id: 'checkin', label: '— Check-in', locked: true },
+    { id: 'laporan', label: '— Laporan', locked: true },
+    { id: 'pengguna', label: '— Pengguna', locked: true },
+    { id: 'log', label: '— Log Aktivitas', locked: true }
   ];
 
   const navHtml = menus
@@ -1182,6 +1173,439 @@ function openVoucherModal(admin, item = null) {
 
     if (!res || !res.ok) {
       toast((res && res.message) || "Gagal menyimpan voucher.", "error");
+  ov.querySelector('#c-name').focus();
+}
+/* ----- A5: Kelola Pesanan ----- */
+let _allOrders = [];
+
+async function initAdminOrders() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pesanan');
+
+  const res = await backend('get_admin_orders', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat daftar pesanan.', 'error');
+    return;
+  }
+
+  _allOrders = res.orders || [];
+  const catSel = document.getElementById('ord-cat');
+  (res.categories || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = c.name;
+    catSel.appendChild(opt);
+  });
+
+  const applyFilter = () => renderOrdersTable();
+  document.getElementById('ord-q').addEventListener('input', applyFilter);
+  document.getElementById('top-search-ord').addEventListener('input', (e) => {
+    document.getElementById('ord-q').value = e.target.value;
+    applyFilter();
+  });
+  document.getElementById('ord-status').addEventListener('change', applyFilter);
+  document.getElementById('ord-range').addEventListener('change', applyFilter);
+  document.getElementById('ord-cat').addEventListener('change', applyFilter);
+
+  document.getElementById('ord-reset').onclick = () => {
+    document.getElementById('ord-q').value = '';
+    document.getElementById('top-search-ord').value = '';
+    document.getElementById('ord-status').value = '';
+    document.getElementById('ord-range').value = 'all';
+    document.getElementById('ord-cat').value = '';
+    applyFilter();
+  };
+
+  document.getElementById('btn-export-csv').onclick = () => exportOrdersCsv(getFilteredOrders());
+
+  renderOrdersTable();
+}
+
+function getFilteredOrders() {
+  const q = document.getElementById('ord-q').value.trim().toLowerCase();
+  const st = document.getElementById('ord-status').value;
+  const rng = document.getElementById('ord-range').value;
+  const cat = document.getElementById('ord-cat').value;
+  const now = Date.now();
+
+  return _allOrders.filter(o => {
+    if (q && !o.order_code.toLowerCase().includes(q) && !o.buyer_name.toLowerCase().includes(q)) return false;
+    if (st && o.status !== st) return false;
+    if (cat && !(o.categories || []).includes(cat)) return false;
+    if (rng !== 'all' && o.created_at) {
+      const diffDays = (now - new Date(o.created_at).getTime()) / 86400000;
+      if (diffDays > Number(rng)) return false;
+    }
+    return true;
+  });
+}
+
+function renderOrdersTable() {
+  const list = getFilteredOrders();
+  const tbody = document.getElementById('ord-table-body');
+  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman 1 dari 1`;
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="muted">Tidak ada pesanan yang cocok dengan filter.</td></tr>`;
+    return;
+  }
+
+  const badge = (s) => {
+    const map = {
+      paid: '<span style="color:#22c55e">Paid</span>',
+      pending: '<span style="color:#f59e0b">Pending</span>',
+      expired: '<span class="muted">Expired</span>',
+      cancelled: '<span style="color:#ef4444">Cancelled</span>'
+    };
+    return map[s] || esc(s);
+  };
+
+  tbody.innerHTML = list.map(o => `
+    <tr>
+      <td style="font-weight:500">${esc(o.order_code)}</td>
+      <td>${esc(o.buyer_name)}</td>
+      <td>${Number(o.total_tickets)}</td>
+      <td>${rupiah(o.total_amount)}</td>
+      <td>${badge(o.status)}</td>
+      <td><a href="order-detail.html?id=${o.order_id}" style="color:var(--text);font-size:13px">Detail →</a></td>
+    </tr>`).join('');
+}
+
+function exportOrdersCsv(list) {
+  if (!list.length) { toast('Tidak ada data untuk diexport.', 'warn'); return; }
+  const rows = [['Kode Pesanan', 'Pembeli', 'Email', 'Jumlah Tiket', 'Total', 'Status', 'Tanggal']];
+  list.forEach(o => rows.push([o.order_code, o.buyer_name, o.buyer_email, o.total_tickets, o.total_amount, o.status, o.created_at || '']));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `pesanan-the-weeknd-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  toast('File CSV pesanan berhasil diunduh.');
+}
+
+/* ----- A6 & A6p: Detail Pesanan ----- */
+async function initAdminOrderDetail() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pesanan');
+
+  // 👇 JANGAN dibungkus Number(), biarkan string agar mendukung UUID maupun integer
+  const orderId = new URLSearchParams(window.location.search).get('id');
+  if (!orderId) { window.location.href = 'orders.html'; return; }
+
+  const loadDetail = async () => {
+    const res = await backend('get_admin_order_detail', [admin.user_id, orderId], null);
+    // ... sisa kode berikutnya sama ...
+    if (!res || !res.ok) {
+      toast((res && res.message) || 'Gagal memuat detail pesanan.', 'error');
+      return;
+    }
+
+    const o = res.order;
+    const u = o.users || {};
+    const items = res.items || [];
+    const tickets = res.tickets || [];
+    const pay = res.payment;
+
+    document.getElementById('det-code').textContent = o.order_code;
+    const dt = o.created_at ? new Date(o.created_at) : new Date();
+    document.getElementById('det-created').textContent = `Dibuat ${dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })} · ${dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':')} WIB`;
+
+    const stColors = { paid: '#22c55e', pending: '#f59e0b', cancelled: '#ef4444', expired: '#888' };
+    const stEl = document.getElementById('det-status-badge');
+    stEl.textContent = o.status.charAt(0).toUpperCase() + o.status.slice(1);
+    stEl.style.color = stColors[o.status] || '#fff';
+
+    // Rincian item pesanan
+    const firstItem = items[0] || {};
+    const catName = (firstItem.ticket_categories || {}).name || 'Tiket';
+    const qtySum = items.reduce((a, b) => a + Number(b.quantity || 0), 0);
+    const unitPrice = Number((firstItem.ticket_categories || {}).price || 0);
+    const subtotal = items.reduce((a, b) => a + Number(b.subtotal || 0), 0);
+    const disc = Number(o.discount_amount || 0);
+
+    document.getElementById('det-items-summary').innerHTML = `
+      <div style="display:flex;justify-content:space-between"><span class="muted">Kategori / jumlah</span><strong>${esc(catName)} × ${qtySum}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Harga satuan</span><strong>${rupiah(unitPrice)}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Subtotal</span><strong>${rupiah(subtotal)}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Voucher / diskon</span><strong>${disc > 0 ? '−' + rupiah(disc) : '— / Rp0'}</strong></div>`;
+    document.getElementById('det-total').textContent = rupiah(o.total_amount);
+
+    // Pembeli & Aksi Status
+    document.getElementById('det-buyer-name').textContent = u.full_name || 'Pengunjung';
+    document.getElementById('det-buyer-email').textContent = u.email || '-';
+    document.getElementById('det-buyer-phone').textContent = u.phone || '-';
+
+    const sel = document.getElementById('det-status-select');
+    const mainBtn = document.getElementById('det-main-action');
+    const hintEl = document.getElementById('det-action-hint');
+
+    const updateStatus = async (targetStatus, title, text) => {
+      confirmModal({
+        title,
+        text,
+        yes: 'Ya, Lanjutkan',
+        onYes: async () => {
+          mainBtn.classList.add('is-loading');
+          mainBtn.disabled = true;
+          const upRes = await backend('admin_update_order_status', [admin.user_id, orderId, targetStatus], null);
+          mainBtn.classList.remove('is-loading');
+          mainBtn.disabled = false;
+          if (!upRes || !upRes.ok) {
+            toast((upRes && upRes.message) || 'Gagal mengubah status.', 'error');
+            return;
+          }
+          toast(upRes.message);
+          await loadDetail();
+        }
+      });
+    };
+
+    if (o.status === 'pending') {
+      mainBtn.textContent = 'Verifikasi Pembayaran';
+      hintEl.textContent = 'Menyetujui pembayaran akan otomatis menerbitkan e-ticket.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'paid';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Perubahan status akan memperbarui tiket dan kuota secara otomatis.');
+      };
+    } else if (o.status === 'paid') {
+      mainBtn.textContent = 'Batalkan Tiket';
+      hintEl.textContent = 'Pembatalan memerlukan konfirmasi dan mengembalikan kuota.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'cancelled';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Pembatalan akan menonaktifkan e-ticket dan mengembalikan kuota ke kategori.');
+      };
+    } else {
+      mainBtn.textContent = 'Simpan Perubahan Status';
+      hintEl.textContent = 'Pilih status baru pada dropdown di atas bila diperlukan.';
+      mainBtn.onclick = () => {
+        if (!sel.value) { toast('Pilih status baru terlebih dahulu.', 'warn'); return; }
+        updateStatus(sel.value, `UBAH STATUS KE ${sel.value.toUpperCase()}?`, 'Status pesanan akan diperbarui di database.');
+      };
+    }
+
+    // Tabel Tiket / Pemegang
+    document.getElementById('det-ticket-count').textContent = `Menampilkan ${tickets.length} data · Halaman 1 dari 1`;
+    const tBody = document.getElementById('det-tickets-body');
+    if (!tickets.length) {
+      tBody.innerHTML = `<tr><td colspan="4" class="muted">Belum ada data pemegang tiket.</td></tr>`;
+    } else {
+      tBody.innerHTML = tickets.map(t => {
+        const isPendingTicket = o.status === 'pending' || !t.ticket_code || String(t.ticket_code).includes('PENDING');
+        const codeLabel = isPendingTicket ? 'Belum diterbitkan' : esc(t.ticket_code);
+        const stLabel = o.status === 'pending'
+          ? '<span style="color:#f59e0b">Pending</span>'
+          : (t.status === 'valid' ? '<span style="color:#22c55e">Valid</span>' : `<span class="muted">${esc(t.status)}</span>`);
+        return `
+          <tr>
+            <td style="font-weight:500">${codeLabel}</td>
+            <td>${esc(t.holder_name || u.full_name || '-')}</td>
+            <td>${esc((t.ticket_categories || {}).name || catName)}</td>
+            <td>${stLabel}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    // Riwayat Pembayaran
+    if (pay) {
+      document.getElementById('det-pay-ref').textContent = `${pay.reference_code || 'PAY-' + orderId} / ${pay.method || 'Virtual Account'}`;
+      if (o.status === 'paid' || pay.status === 'success') {
+        const pDate = pay.paid_at ? new Date(pay.paid_at).toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB' : '';
+        document.getElementById('det-pay-status').textContent = `Success${pDate ? ' · ' + pDate : ''}`;
+        document.getElementById('det-pay-note').textContent = `${tickets.length} e-ticket sudah diterbitkan untuk pemegang di atas.`;
+      } else {
+        document.getElementById('det-pay-status').textContent = 'Pending · Menunggu verifikasi';
+        document.getElementById('det-pay-note').textContent = 'Tiket dibuat setelah pembayaran disetujui.';
+      }
+    } else {
+      document.getElementById('det-pay-ref').textContent = `PAY-${String(orderId).padStart(4, '0')} / Transfer`;
+      document.getElementById('det-pay-status').textContent = o.status === 'paid' ? 'Success' : 'Pending · Menunggu verifikasi';
+      document.getElementById('det-pay-note').textContent = o.status === 'paid' ? 'E-ticket telah diterbitkan.' : 'Tiket dibuat setelah pembayaran disetujui.';
+    }
+  };
+
+  await loadDetail();
+}
+/* ----- A7: Pembayaran & Verifikasi ----- */
+let _allPayments = [];
+
+async function initAdminPayments() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pembayaran');
+
+  document.getElementById('pay-q').addEventListener('input', renderPaymentsTable);
+  document.getElementById('top-search-pay').addEventListener('input', (e) => {
+    document.getElementById('pay-q').value = e.target.value;
+    renderPaymentsTable();
+  });
+  document.getElementById('pay-status').addEventListener('change', renderPaymentsTable);
+  document.getElementById('pay-method').addEventListener('change', renderPaymentsTable);
+
+  await loadAdminPayments(admin);
+}
+
+async function loadAdminPayments(admin) {
+  const res = await backend('get_admin_payments', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat data pembayaran.', 'error');
+    return;
+  }
+
+  _allPayments = res.payments || [];
+
+  // Isi opsi metode pembayaran unik ke dropdown
+  const methodSel = document.getElementById('pay-method');
+  const currentVal = methodSel.value;
+  const methods = [...new Set(_allPayments.map(p => p.method).filter(Boolean))];
+  methodSel.innerHTML = `<option value="">Semua metode</option>` +
+    methods.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  methodSel.value = currentVal;
+
+  renderPaymentsTable();
+}
+
+function renderPaymentsTable() {
+  const admin = getAdminSession();
+  const q = document.getElementById('pay-q').value.trim().toLowerCase();
+  const st = document.getElementById('pay-status').value;
+  const mtd = document.getElementById('pay-method').value;
+
+  const filtered = _allPayments.filter(p => {
+    if (
+      q &&
+      !p.reference_code.toLowerCase().includes(q) &&
+      !p.order_code.toLowerCase().includes(q) &&
+      !(p.buyer_name || '').toLowerCase().includes(q)
+    ) return false;
+    if (st && p.status !== st) return false;
+    if (mtd && p.method !== mtd) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('pay-table-body');
+  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman 1 dari 1`;
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="muted">Tidak ada transaksi pembayaran yang cocok.</td></tr>`;
+    return;
+  }
+
+  const formatTime = (iso) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const tgl = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+    const jam = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
+    return `${tgl} · ${jam}`;
+  };
+
+  const statusHtml = (s) => {
+    if (s === 'success') return `<span style="color:#22c55e">success</span>`;
+    if (s === 'failed') return `<span style="color:#ef4444">failed</span>`;
+    return `<span style="color:#f59e0b">${esc(s)}</span>`;
+  };
+
+  tbody.innerHTML = filtered.map(p => {
+    const isPending = p.status === 'pending';
+    const actionEl = isPending
+      ? `<button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>`
+      : `<div style="display:flex;gap:12px;align-items:center">
+           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>
+           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text-2);font-size:12px;padding:0;cursor:pointer">Verifikasi</button>
+         </div>`;
+
+    return `
+      <tr>
+        <td style="font-weight:500">${esc(p.reference_code)}</td>
+        <td style="font-weight:500">${esc(p.order_code)}</td>
+        <td>${esc(p.buyer_name)}</td>
+        <td class="muted">${esc(p.method)}</td>
+        <td>${rupiah(p.amount)}</td>
+        <td>${statusHtml(p.status)}</td>
+        <td class="muted">${formatTime(p.created_at)}</td>
+        <td>${actionEl}</td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('.pay-act-verify').forEach(btn => {
+    btn.onclick = () => {
+      const item = _allPayments.find(x => String(x.payment_id) === btn.dataset.id);
+      if (item) openVerifyPaymentModal(admin, item);
+    };
+  });
+}
+
+function openVerifyPaymentModal(admin, pay) {
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `
+    <form class="modal modal-lg" id="verify-pay-form" novalidate>
+      <h3>VERIFIKASI PEMBAYARAN · ${esc(pay.reference_code)}</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between"><span class="muted">Kode Pesanan</span><strong>${esc(pay.order_code)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Pembeli</span><strong>${esc(pay.buyer_name)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Metode</span><strong>${esc(pay.method)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Nominal</span><strong>${rupiah(pay.amount)}</strong></div>
+      </div>
+
+      <div class="field">
+        <label for="v-decision">Keputusan verifikasi</label>
+        <select class="input" id="v-decision" style="background:var(--raised);cursor:pointer">
+          <option value="approve">Setujui Pembayaran (Terbitkan E-Ticket)</option>
+          <option value="reject">Tolak Pembayaran (Wajib Isi Alasan)</option>
+        </select>
+      </div>
+
+      <div class="field" id="v-reason-wrap" hidden>
+        <label for="v-reason">Alasan penolakan</label>
+        <input class="input" id="v-reason" placeholder="Contoh: nominal pembayaran tidak sesuai">
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="v-cancel">Batal</button>
+        <button type="submit" class="btn btn-primary" id="v-submit">Simpan Keputusan</button>
+      </div>
+    </form>`;
+
+  const decSel = ov.querySelector('#v-decision');
+  const reasonWrap = ov.querySelector('#v-reason-wrap');
+  const reasonInput = ov.querySelector('#v-reason');
+
+  decSel.onchange = () => {
+    reasonWrap.hidden = decSel.value !== 'reject';
+    if (!reasonWrap.hidden) reasonInput.focus();
+  };
+
+  ov.querySelector('#v-cancel').onclick = () => ov.remove();
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  ov.querySelector('#verify-pay-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const decision = decSel.value;
+    const reason = reasonInput.value.trim();
+
+    if (decision === 'reject' && reason.length < 3) {
+      toast('Penolakan wajib disertai alasan.', 'error');
+      reasonInput.focus();
+      return;
+    }
+
+    const submitBtn = ov.querySelector('#v-submit');
+    submitBtn.classList.add('is-loading');
+    submitBtn.disabled = true;
+
+    const res = await backend('admin_verify_payment', [admin.user_id, pay.payment_id, decision, reason], null);
+
+    submitBtn.classList.remove('is-loading');
+    submitBtn.disabled = false;
+
+    if (!res || !res.ok) {
+      toast((res && res.message) || 'Gagal memproses verifikasi.', 'error');
       return;
     }
 
@@ -1192,4 +1616,25 @@ function openVoucherModal(admin, item = null) {
 
   document.body.appendChild(ov);
   ov.querySelector("#v-code").focus();
+}
+
+    // Tampilkan banner notifikasi di atas judul halaman sesuai desain A7
+    const banner = document.getElementById('pay-feedback-banner');
+    if (banner) {
+      banner.hidden = false;
+      banner.textContent = res.message;
+      if (res.type === 'error') {
+        banner.style.color = '#ef4444';
+        banner.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+      } else {
+        banner.style.color = '#22c55e';
+        banner.style.borderColor = 'rgba(34, 197, 94, 0.35)';
+      }
+    }
+
+    toast(res.message, res.type === 'error' ? 'error' : 'success');
+    await loadAdminPayments(admin);
+  };
+
+  document.body.appendChild(ov);
 }
