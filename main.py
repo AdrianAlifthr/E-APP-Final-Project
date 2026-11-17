@@ -773,5 +773,163 @@ def delete_ticket_category(user_id, category_id):
     except Exception as exc:
         return _err(exc, "Gagal menghapus kategori tiket")
 
+VCOL = {
+    "id":     "voucher_id",
+    "code":   "code",
+    "type":   "discount_type",    
+    "value":  "discount_value",  
+    "quota":  "max_usage",
+    "end":    "valid_until",      
+    "active": "is_active",
+}
+
+VTYPE = {"percent": "percent", "fixed": "fixed"}
+
+_VCODE_RE = re.compile(r"^[A-Z0-9]{3,20}$")
+
+
+def _voucher_out(row, used):
+    kind = "percent" if row.get(VCOL["type"]) == VTYPE["percent"] else "fixed"
+    return {
+        "voucher_id": row[VCOL["id"]],
+        "code": row[VCOL["code"]],
+        "kind": kind,
+        "value": float(row.get(VCOL["value"]) or 0),
+        "quota": int(row.get(VCOL["quota"]) or 0),
+        "used": used,
+        "valid_until": row.get(VCOL["end"]),
+        "is_active": bool(row.get(VCOL["active"], True)),
+    }
+
+
+def _voucher_usage():
+    """Hitung pemakaian voucher dari pesanan yang sudah dibayar."""
+    rows = (
+        supabase.table("orders")
+        .select("voucher_id,discount")
+        .eq("status", "paid")
+        .not_.is_("voucher_id", "null")
+        .execute()
+        .data or []
+    )
+    used, discount = {}, 0.0
+    for r in rows:
+        used[r["voucher_id"]] = used.get(r["voucher_id"], 0) + 1
+        discount += float(r.get("discount") or 0)
+    return used, discount
+
+
+@eel.expose
+# def get_admin_vouchers(user_id):
+#     if not _require_admin(user_id):
+#         return {"ok": False, "message": "Akses ditolak."}
+#     try:
+#         rows = supabase.table("vouchers").select("*").order(VCOL["id"]).execute().data or []
+#         used, total_discount = _voucher_usage()
+#         items = [_voucher_out(r, used.get(r[VCOL["id"]], 0)) for r in rows]
+#         return {"ok": True, "vouchers": items, "total_used": sum(used.values()),
+#                 "total_discount": total_discount}
+#     except Exception as exc:
+#         return _err(exc, "Gagal memuat voucher")
+
+def get_admin_vouchers(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            supabase.table("vouchers").update({VCOL["active"]: False}) \
+                .eq(VCOL["active"], True).lt(VCOL["end"], now_iso).execute()
+        except Exception as exc:
+            print("[VOUCHER EXPIRE]", repr(exc))
+
+        rows = supabase.table("vouchers").select("*").order(VCOL["id"]).execute().data or []
+        used, total_discount = _voucher_usage()
+        items = [_voucher_out(r, used.get(r[VCOL["id"]], 0)) for r in rows]
+        return {"ok": True, "vouchers": items, "total_used": sum(used.values()),
+                "total_discount": total_discount}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat voucher")
+
+
+@eel.expose
+def save_voucher(user_id, data):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    data = data or {}
+    vid = data.get("voucher_id")
+    code = (data.get("code") or "").strip().upper()
+    kind = data.get("kind")
+    end = (data.get("valid_until") or "").strip()
+
+    if not _VCODE_RE.match(code):
+        return {"ok": False, "field": "code", "message": "Kode 3-20 karakter, hanya huruf besar dan angka."}
+    if kind not in VTYPE:
+        return {"ok": False, "field": "kind", "message": "Jenis voucher tidak valid."}
+    try:
+        value = float(data.get("value") or 0)
+        quota = int(data.get("quota") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Nilai dan kuota harus berupa angka."}
+    if value <= 0:
+        return {"ok": False, "field": "value", "message": "Nilai diskon harus lebih dari 0."}
+    if kind == "percent" and value > 100:
+        return {"ok": False, "field": "value", "message": "Diskon persen maksimal 100%."}
+    if quota < 1:
+        return {"ok": False, "field": "quota", "message": "Kuota minimal 1."}
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+        return {"ok": False, "field": "valid_until", "message": "Tanggal berlaku sampai wajib diisi."}
+
+    try:
+        dup = supabase.table("vouchers").select(VCOL["id"]).eq(VCOL["code"], code).execute().data or []
+        if any(str(d[VCOL["id"]]) != str(vid) for d in dup):
+            return {"ok": False, "field": "code", "message": f"Kode {code} sudah dipakai."}
+
+        payload = {
+            VCOL["code"]: code,
+            VCOL["type"]: VTYPE[kind],
+            VCOL["value"]: value,
+            VCOL["quota"]: quota,
+            VCOL["end"]: f"{end}T23:59:59+07:00",
+        }
+        if vid:
+            used, _ = _voucher_usage()
+            if quota < used.get(vid, 0):
+                return {"ok": False, "field": "quota",
+                        "message": f"Kuota tidak boleh lebih kecil dari yang terpakai ({used.get(vid, 0)})."}
+            supabase.table("vouchers").update(payload).eq(VCOL["id"], vid).execute()
+            return {"ok": True, "message": "Voucher diperbarui."}
+
+        payload[VCOL["active"]] = True
+        supabase.table("vouchers").insert(payload).execute()
+        return {"ok": True, "message": "Voucher ditambahkan."}
+    except Exception as exc:
+        return _err(exc, "Gagal menyimpan voucher")
+
+
+@eel.expose
+def toggle_voucher(user_id, voucher_id, active):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        supabase.table("vouchers").update({VCOL["active"]: bool(active)}).eq(VCOL["id"], voucher_id).execute()
+        return {"ok": True, "message": "Voucher diaktifkan." if active else "Voucher dinonaktifkan."}
+    except Exception as exc:
+        return _err(exc, "Gagal mengubah status voucher")
+
+
+@eel.expose
+def delete_voucher(user_id, voucher_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        used, _ = _voucher_usage()
+        if used.get(voucher_id, 0) > 0:
+            return {"ok": False, "message": "Voucher yang sudah dipakai tidak bisa dihapus. Nonaktifkan saja."}
+        supabase.table("vouchers").delete().eq(VCOL["id"], voucher_id).execute()
+        return {"ok": True, "message": "Voucher dihapus."}
+    except Exception as exc:
+        return _err(exc, "Gagal menghapus voucher")
+
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))

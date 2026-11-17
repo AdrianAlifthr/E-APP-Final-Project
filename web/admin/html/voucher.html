@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../css/style.css" />
+    <link rel="stylesheet" href="../css/admin.css" />
+    <style>
+      .v-pager-btn {
+        background: none;
+        border: 0;
+        color: var(--text);
+        font-size: 16px;
+        cursor: pointer;
+        padding: 2px 6px;
+      }
+      .v-pager-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+    </style>
+    <script src="/eel.js"></script>
+    <title>Voucher · Panel Panitia</title>
+  </head>
+  <body class="admin-body">
+    <div class="adm-shell">
+      <aside class="adm-side" id="admin-sidebar"></aside>
+
+      <div class="adm-main">
+        <header class="adm-topbar">
+          <div>
+            <div class="adm-crumb">Panel Panitia / Voucher</div>
+            <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+          </div>
+          <div class="adm-top-actions">
+            <div class="adm-search-wrap">
+              <svg
+                class="adm-search-ico"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                class="adm-search"
+                type="search"
+                placeholder="Cari informasi..."
+              />
+            </div>
+            <button class="adm-bell" title="Notifikasi" aria-label="Notifikasi">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+            </button>
+            <span style="font-size: 13px" id="top-admin-name"
+              >Admin Publikasi</span
+            >
+          </div>
+        </header>
+
+        <section class="adm-hero-row">
+          <div>
+            <p class="eyebrow">PROMOSI / VOUCHER</p>
+            <h1 class="adm-title">SATU KODE. LEBIH BANYAK FANS.</h1>
+            <p class="adm-stamp">
+              Atur diskon dan periode promo secara terkontrol.
+            </p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-voucher">
+            + Tambah Voucher
+          </button>
+        </section>
+
+        <!-- Filter: cari kode + status -->
+        <section
+          style="
+            display: grid;
+            grid-template-columns: 1fr 200px;
+            gap: 20px;
+            align-items: end;
+            margin-bottom: 20px;
+          "
+        >
+          <div class="field">
+            <label for="search-voucher">Cari voucher</label>
+            <input
+              class="input"
+              id="search-voucher"
+              type="search"
+              placeholder="Kode voucher..."
+              autocomplete="off"
+            />
+          </div>
+          <div class="field">
+            <label
+              for="filter-voucher-status"
+              class="sr-only"
+              style="position: absolute; left: -9999px"
+              >Status</label
+            >
+            <select class="input" id="filter-voucher-status">
+              <option value="">Semua status</option>
+              <option value="active">Aktif</option>
+              <option value="inactive">Nonaktif</option>
+              <option value="expired">Kedaluwarsa</option>
+            </select>
+          </div>
+        </section>
+
+        <!-- Tabel Daftar Voucher -->
+        <article class="card box" style="gap: 16px">
+          <div style="overflow-x: auto">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>KODE</th>
+                  <th>JENIS</th>
+                  <th>NILAI</th>
+                  <th>KUOTA</th>
+                  <th>TERPAKAI</th>
+                  <th>BERLAKU SAMPAI</th>
+                  <th>STATUS</th>
+                  <th>AKSI</th>
+                </tr>
+              </thead>
+              <tbody id="voucher-table-body">
+                <tr>
+                  <td colspan="8" class="muted">Memuat voucher...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 12px;
+              color: var(--text-2);
+              padding-top: 8px;
+            "
+          >
+            <span id="voucher-count-info"
+              >Menampilkan 0 data · Halaman 1 dari 1</span
+            >
+            <div style="display: flex; align-items: center; gap: 14px">
+              <button
+                type="button"
+                class="v-pager-btn"
+                id="v-prev"
+                aria-label="Halaman sebelumnya"
+              >
+                ←
+              </button>
+              <span style="color: var(--text)" id="v-page-no">1</span>
+              <button
+                type="button"
+                class="v-pager-btn"
+                id="v-next"
+                aria-label="Halaman berikutnya"
+              >
+                →
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <p
+          class="muted"
+          style="font-size: 13px; margin-top: 16px"
+          id="voucher-note"
+        >
+          Memuat ringkasan pemakaian voucher...
+        </p>
+        <footer class="a1-foot">
+          PROYEK AKADEMIK · DATA TERHUBUNG KE SUPABASE
+        </footer>
+      </div>
+    </div>
+
+    <script src="../../js/app.js"></script>
+    <script src="../js/admin.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", initAdminVoucher);
+    </script>
+  </body>
+</html>
