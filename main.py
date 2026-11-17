@@ -920,5 +920,123 @@ def admin_update_order_status(user_id, order_id, new_status):
     except Exception as exc:
         return _err(exc, "Gagal memperbarui status pesanan")
 
+@eel.expose
+def get_admin_payments(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        payments = (
+            supabase.table("payments")
+            .select("*, orders(order_id,order_code,total_amount,status,users!user_id(full_name))")
+            .order("payment_id", desc=True)
+            .execute()
+            .data or []
+        )
+
+        result = []
+        for p in payments:
+            ord_obj = p.get("orders") or {}
+            usr_obj = ord_obj.get("users") or {}
+            pid = p.get("payment_id")
+            ref_code = p.get("reference_code") or f"PAY-{int(pid):04d}" if str(pid).isdigit() else f"PAY-{str(pid)[:6].upper()}"
+            result.append({
+                "payment_id": pid,
+                "reference_code": ref_code,
+                "order_id": ord_obj.get("order_id") or p.get("order_id"),
+                "order_code": ord_obj.get("order_code") or "-",
+                "buyer_name": usr_obj.get("full_name") or "Pengunjung",
+                "method": p.get("method") or "Transfer Bank",
+                "amount": float(p.get("amount") or ord_obj.get("total_amount") or 0),
+                "status": p.get("status") or "pending",
+                "paid_at": p.get("paid_at"),
+                "created_at": p.get("created_at") or p.get("paid_at"),
+            })
+
+        return {"ok": True, "payments": result}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat data pembayaran")
+
+
+@eel.expose
+def admin_verify_payment(user_id, payment_id, decision, reason=""):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    if decision not in ("approve", "reject"):
+        return {"ok": False, "message": "Keputusan verifikasi tidak valid."}
+
+    reason = (reason or "").strip()
+    if decision == "reject" and len(reason) < 3:
+        return {"ok": False, "message": "Penolakan wajib disertai alasan (minimal 3 karakter)."}
+
+    try:
+        p_res = (
+            supabase.table("payments")
+            .select("*, orders(order_id,order_code,status)")
+            .eq("payment_id", payment_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not p_res:
+            return {"ok": False, "message": "Data pembayaran tidak ditemukan."}
+
+        pay = p_res[0]
+        ord_obj = pay.get("orders") or {}
+        order_id = ord_obj.get("order_id") or pay.get("order_id")
+        old_order_status = ord_obj.get("status")
+        ref_code = pay.get("reference_code") or f"PAY-{int(payment_id):04d}" if str(payment_id).isdigit() else f"PAY-{str(payment_id)[:6].upper()}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if decision == "approve":
+            supabase.table("payments").update({
+                "status": "success",
+                "paid_at": now_iso,
+            }).eq("payment_id", payment_id).execute()
+
+            if order_id:
+                supabase.table("orders").update({"status": "paid"}).eq("order_id", order_id).execute()
+                t_list = supabase.table("tickets").select("ticket_id,ticket_code").eq("order_id", order_id).execute().data or []
+                for idx, t in enumerate(t_list, start=1):
+                    code = t.get("ticket_code")
+                    if not code or "PENDING" in str(code).upper():
+                        code = f"TW-C1-{str(order_id)[:4].upper()}{idx:02d}"
+                    supabase.table("tickets").update({
+                        "ticket_code": code,
+                        "status": "valid"
+                    }).eq("ticket_id", t["ticket_id"]).execute()
+
+            return {
+                "ok": True,
+                "type": "success",
+                "message": f"{ref_code} disetujui. Pesanan menjadi Paid dan tiket diterbitkan."
+            }
+        else:
+            supabase.table("payments").update({
+                "status": "failed"
+            }).eq("payment_id", payment_id).execute()
+
+            if order_id:
+                supabase.table("orders").update({"status": "cancelled"}).eq("order_id", order_id).execute()
+                supabase.table("tickets").update({"status": "cancelled"}).eq("order_id", order_id).execute()
+
+                # Kembalikan kuota kategori jika pesanan sebelumnya aktif (pending / paid)
+                if old_order_status in ("pending", "paid"):
+                    items = supabase.table("order_items").select("category_id,quantity").eq("order_id", order_id).execute().data or []
+                    for it in items:
+                        cid = it["category_id"]
+                        qty = int(it.get("quantity") or 0)
+                        cat = supabase.table("ticket_categories").select("sold").eq("category_id", cid).limit(1).execute().data
+                        if cat:
+                            new_sold = max(0, int(cat[0].get("sold") or 0) - qty)
+                            supabase.table("ticket_categories").update({"sold": new_sold}).eq("category_id", cid).execute()
+
+            return {
+                "ok": True,
+                "type": "error",
+                "message": f"{ref_code} ditolak: {reason}."
+            }
+    except Exception as exc:
+        return _err(exc, "Gagal memproses verifikasi pembayaran")
+
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))

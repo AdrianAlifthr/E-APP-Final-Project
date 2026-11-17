@@ -15,7 +15,7 @@ function renderAdminLayout(activeMenu) {
     { id: 'konser', label: '— Konser', href: 'concert.html' },
     { id: 'kategori', label: '— Kategori Tiket', href: 'categories.html' },
     { id: 'pesanan', label: '— Pesanan', href: 'orders.html' },
-    { id: 'pembayaran', label: '— Pembayaran', locked: true },
+    { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', locked: true },
     { id: 'checkin', label: '— Check-in', locked: true },
@@ -985,4 +985,205 @@ async function initAdminOrderDetail() {
   };
 
   await loadDetail();
+}
+/* ----- A7: Pembayaran & Verifikasi ----- */
+let _allPayments = [];
+
+async function initAdminPayments() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pembayaran');
+
+  document.getElementById('pay-q').addEventListener('input', renderPaymentsTable);
+  document.getElementById('top-search-pay').addEventListener('input', (e) => {
+    document.getElementById('pay-q').value = e.target.value;
+    renderPaymentsTable();
+  });
+  document.getElementById('pay-status').addEventListener('change', renderPaymentsTable);
+  document.getElementById('pay-method').addEventListener('change', renderPaymentsTable);
+
+  await loadAdminPayments(admin);
+}
+
+async function loadAdminPayments(admin) {
+  const res = await backend('get_admin_payments', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat data pembayaran.', 'error');
+    return;
+  }
+
+  _allPayments = res.payments || [];
+
+  // Isi opsi metode pembayaran unik ke dropdown
+  const methodSel = document.getElementById('pay-method');
+  const currentVal = methodSel.value;
+  const methods = [...new Set(_allPayments.map(p => p.method).filter(Boolean))];
+  methodSel.innerHTML = `<option value="">Semua metode</option>` +
+    methods.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  methodSel.value = currentVal;
+
+  renderPaymentsTable();
+}
+
+function renderPaymentsTable() {
+  const admin = getAdminSession();
+  const q = document.getElementById('pay-q').value.trim().toLowerCase();
+  const st = document.getElementById('pay-status').value;
+  const mtd = document.getElementById('pay-method').value;
+
+  const filtered = _allPayments.filter(p => {
+    if (
+      q &&
+      !p.reference_code.toLowerCase().includes(q) &&
+      !p.order_code.toLowerCase().includes(q) &&
+      !(p.buyer_name || '').toLowerCase().includes(q)
+    ) return false;
+    if (st && p.status !== st) return false;
+    if (mtd && p.method !== mtd) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('pay-table-body');
+  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman 1 dari 1`;
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="muted">Tidak ada transaksi pembayaran yang cocok.</td></tr>`;
+    return;
+  }
+
+  const formatTime = (iso) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const tgl = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+    const jam = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
+    return `${tgl} · ${jam}`;
+  };
+
+  const statusHtml = (s) => {
+    if (s === 'success') return `<span style="color:#22c55e">success</span>`;
+    if (s === 'failed') return `<span style="color:#ef4444">failed</span>`;
+    return `<span style="color:#f59e0b">${esc(s)}</span>`;
+  };
+
+  tbody.innerHTML = filtered.map(p => {
+    const isPending = p.status === 'pending';
+    const actionEl = isPending
+      ? `<button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>`
+      : `<div style="display:flex;gap:12px;align-items:center">
+           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>
+           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text-2);font-size:12px;padding:0;cursor:pointer">Verifikasi</button>
+         </div>`;
+
+    return `
+      <tr>
+        <td style="font-weight:500">${esc(p.reference_code)}</td>
+        <td style="font-weight:500">${esc(p.order_code)}</td>
+        <td>${esc(p.buyer_name)}</td>
+        <td class="muted">${esc(p.method)}</td>
+        <td>${rupiah(p.amount)}</td>
+        <td>${statusHtml(p.status)}</td>
+        <td class="muted">${formatTime(p.created_at)}</td>
+        <td>${actionEl}</td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('.pay-act-verify').forEach(btn => {
+    btn.onclick = () => {
+      const item = _allPayments.find(x => String(x.payment_id) === btn.dataset.id);
+      if (item) openVerifyPaymentModal(admin, item);
+    };
+  });
+}
+
+function openVerifyPaymentModal(admin, pay) {
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `
+    <form class="modal modal-lg" id="verify-pay-form" novalidate>
+      <h3>VERIFIKASI PEMBAYARAN · ${esc(pay.reference_code)}</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between"><span class="muted">Kode Pesanan</span><strong>${esc(pay.order_code)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Pembeli</span><strong>${esc(pay.buyer_name)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Metode</span><strong>${esc(pay.method)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">Nominal</span><strong>${rupiah(pay.amount)}</strong></div>
+      </div>
+
+      <div class="field">
+        <label for="v-decision">Keputusan verifikasi</label>
+        <select class="input" id="v-decision" style="background:var(--raised);cursor:pointer">
+          <option value="approve">Setujui Pembayaran (Terbitkan E-Ticket)</option>
+          <option value="reject">Tolak Pembayaran (Wajib Isi Alasan)</option>
+        </select>
+      </div>
+
+      <div class="field" id="v-reason-wrap" hidden>
+        <label for="v-reason">Alasan penolakan</label>
+        <input class="input" id="v-reason" placeholder="Contoh: nominal pembayaran tidak sesuai">
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="v-cancel">Batal</button>
+        <button type="submit" class="btn btn-primary" id="v-submit">Simpan Keputusan</button>
+      </div>
+    </form>`;
+
+  const decSel = ov.querySelector('#v-decision');
+  const reasonWrap = ov.querySelector('#v-reason-wrap');
+  const reasonInput = ov.querySelector('#v-reason');
+
+  decSel.onchange = () => {
+    reasonWrap.hidden = decSel.value !== 'reject';
+    if (!reasonWrap.hidden) reasonInput.focus();
+  };
+
+  ov.querySelector('#v-cancel').onclick = () => ov.remove();
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  ov.querySelector('#verify-pay-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const decision = decSel.value;
+    const reason = reasonInput.value.trim();
+
+    if (decision === 'reject' && reason.length < 3) {
+      toast('Penolakan wajib disertai alasan.', 'error');
+      reasonInput.focus();
+      return;
+    }
+
+    const submitBtn = ov.querySelector('#v-submit');
+    submitBtn.classList.add('is-loading');
+    submitBtn.disabled = true;
+
+    const res = await backend('admin_verify_payment', [admin.user_id, pay.payment_id, decision, reason], null);
+
+    submitBtn.classList.remove('is-loading');
+    submitBtn.disabled = false;
+
+    if (!res || !res.ok) {
+      toast((res && res.message) || 'Gagal memproses verifikasi.', 'error');
+      return;
+    }
+
+    ov.remove();
+
+    // Tampilkan banner notifikasi di atas judul halaman sesuai desain A7
+    const banner = document.getElementById('pay-feedback-banner');
+    if (banner) {
+      banner.hidden = false;
+      banner.textContent = res.message;
+      if (res.type === 'error') {
+        banner.style.color = '#ef4444';
+        banner.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+      } else {
+        banner.style.color = '#22c55e';
+        banner.style.borderColor = 'rgba(34, 197, 94, 0.35)';
+      }
+    }
+
+    toast(res.message, res.type === 'error' ? 'error' : 'success');
+    await loadAdminPayments(admin);
+  };
+
+  document.body.appendChild(ov);
 }
