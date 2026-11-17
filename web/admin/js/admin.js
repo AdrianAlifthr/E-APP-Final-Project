@@ -14,7 +14,7 @@ function renderAdminLayout(activeMenu) {
     { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: icoDash },
     { id: 'konser', label: '— Konser', href: 'concert.html' },
     { id: 'kategori', label: '— Kategori Tiket', href: 'categories.html' },
-    { id: 'pesanan', label: '— Pesanan', locked: true },
+    { id: 'pesanan', label: '— Pesanan', href: 'orders.html' },
     { id: 'pembayaran', label: '— Pembayaran', locked: true },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', locked: true },
@@ -730,4 +730,259 @@ function openCategoryModal(admin, item = null) {
 
   document.body.appendChild(ov);
   ov.querySelector('#c-name').focus();
+}
+/* ----- A5: Kelola Pesanan ----- */
+let _allOrders = [];
+
+async function initAdminOrders() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pesanan');
+
+  const res = await backend('get_admin_orders', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat daftar pesanan.', 'error');
+    return;
+  }
+
+  _allOrders = res.orders || [];
+  const catSel = document.getElementById('ord-cat');
+  (res.categories || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = c.name;
+    catSel.appendChild(opt);
+  });
+
+  const applyFilter = () => renderOrdersTable();
+  document.getElementById('ord-q').addEventListener('input', applyFilter);
+  document.getElementById('top-search-ord').addEventListener('input', (e) => {
+    document.getElementById('ord-q').value = e.target.value;
+    applyFilter();
+  });
+  document.getElementById('ord-status').addEventListener('change', applyFilter);
+  document.getElementById('ord-range').addEventListener('change', applyFilter);
+  document.getElementById('ord-cat').addEventListener('change', applyFilter);
+
+  document.getElementById('ord-reset').onclick = () => {
+    document.getElementById('ord-q').value = '';
+    document.getElementById('top-search-ord').value = '';
+    document.getElementById('ord-status').value = '';
+    document.getElementById('ord-range').value = 'all';
+    document.getElementById('ord-cat').value = '';
+    applyFilter();
+  };
+
+  document.getElementById('btn-export-csv').onclick = () => exportOrdersCsv(getFilteredOrders());
+
+  renderOrdersTable();
+}
+
+function getFilteredOrders() {
+  const q = document.getElementById('ord-q').value.trim().toLowerCase();
+  const st = document.getElementById('ord-status').value;
+  const rng = document.getElementById('ord-range').value;
+  const cat = document.getElementById('ord-cat').value;
+  const now = Date.now();
+
+  return _allOrders.filter(o => {
+    if (q && !o.order_code.toLowerCase().includes(q) && !o.buyer_name.toLowerCase().includes(q)) return false;
+    if (st && o.status !== st) return false;
+    if (cat && !(o.categories || []).includes(cat)) return false;
+    if (rng !== 'all' && o.created_at) {
+      const diffDays = (now - new Date(o.created_at).getTime()) / 86400000;
+      if (diffDays > Number(rng)) return false;
+    }
+    return true;
+  });
+}
+
+function renderOrdersTable() {
+  const list = getFilteredOrders();
+  const tbody = document.getElementById('ord-table-body');
+  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman 1 dari 1`;
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="muted">Tidak ada pesanan yang cocok dengan filter.</td></tr>`;
+    return;
+  }
+
+  const badge = (s) => {
+    const map = {
+      paid: '<span style="color:#22c55e">Paid</span>',
+      pending: '<span style="color:#f59e0b">Pending</span>',
+      expired: '<span class="muted">Expired</span>',
+      cancelled: '<span style="color:#ef4444">Cancelled</span>'
+    };
+    return map[s] || esc(s);
+  };
+
+  tbody.innerHTML = list.map(o => `
+    <tr>
+      <td style="font-weight:500">${esc(o.order_code)}</td>
+      <td>${esc(o.buyer_name)}</td>
+      <td>${Number(o.total_tickets)}</td>
+      <td>${rupiah(o.total_amount)}</td>
+      <td>${badge(o.status)}</td>
+      <td><a href="order-detail.html?id=${o.order_id}" style="color:var(--text);font-size:13px">Detail →</a></td>
+    </tr>`).join('');
+}
+
+function exportOrdersCsv(list) {
+  if (!list.length) { toast('Tidak ada data untuk diexport.', 'warn'); return; }
+  const rows = [['Kode Pesanan', 'Pembeli', 'Email', 'Jumlah Tiket', 'Total', 'Status', 'Tanggal']];
+  list.forEach(o => rows.push([o.order_code, o.buyer_name, o.buyer_email, o.total_tickets, o.total_amount, o.status, o.created_at || '']));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `pesanan-the-weeknd-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  toast('File CSV pesanan berhasil diunduh.');
+}
+
+/* ----- A6 & A6p: Detail Pesanan ----- */
+async function initAdminOrderDetail() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.href = 'login.html'; return; }
+
+  renderAdminLayout('pesanan');
+
+  // 👇 JANGAN dibungkus Number(), biarkan string agar mendukung UUID maupun integer
+  const orderId = new URLSearchParams(window.location.search).get('id');
+  if (!orderId) { window.location.href = 'orders.html'; return; }
+
+  const loadDetail = async () => {
+    const res = await backend('get_admin_order_detail', [admin.user_id, orderId], null);
+    // ... sisa kode berikutnya sama ...
+    if (!res || !res.ok) {
+      toast((res && res.message) || 'Gagal memuat detail pesanan.', 'error');
+      return;
+    }
+
+    const o = res.order;
+    const u = o.users || {};
+    const items = res.items || [];
+    const tickets = res.tickets || [];
+    const pay = res.payment;
+
+    document.getElementById('det-code').textContent = o.order_code;
+    const dt = o.created_at ? new Date(o.created_at) : new Date();
+    document.getElementById('det-created').textContent = `Dibuat ${dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })} · ${dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':')} WIB`;
+
+    const stColors = { paid: '#22c55e', pending: '#f59e0b', cancelled: '#ef4444', expired: '#888' };
+    const stEl = document.getElementById('det-status-badge');
+    stEl.textContent = o.status.charAt(0).toUpperCase() + o.status.slice(1);
+    stEl.style.color = stColors[o.status] || '#fff';
+
+    // Rincian item pesanan
+    const firstItem = items[0] || {};
+    const catName = (firstItem.ticket_categories || {}).name || 'Tiket';
+    const qtySum = items.reduce((a, b) => a + Number(b.quantity || 0), 0);
+    const unitPrice = Number((firstItem.ticket_categories || {}).price || 0);
+    const subtotal = items.reduce((a, b) => a + Number(b.subtotal || 0), 0);
+    const disc = Number(o.discount_amount || 0);
+
+    document.getElementById('det-items-summary').innerHTML = `
+      <div style="display:flex;justify-content:space-between"><span class="muted">Kategori / jumlah</span><strong>${esc(catName)} × ${qtySum}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Harga satuan</span><strong>${rupiah(unitPrice)}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Subtotal</span><strong>${rupiah(subtotal)}</strong></div>
+      <div style="display:flex;justify-content:space-between"><span class="muted">Voucher / diskon</span><strong>${disc > 0 ? '−' + rupiah(disc) : '— / Rp0'}</strong></div>`;
+    document.getElementById('det-total').textContent = rupiah(o.total_amount);
+
+    // Pembeli & Aksi Status
+    document.getElementById('det-buyer-name').textContent = u.full_name || 'Pengunjung';
+    document.getElementById('det-buyer-email').textContent = u.email || '-';
+    document.getElementById('det-buyer-phone').textContent = u.phone || '-';
+
+    const sel = document.getElementById('det-status-select');
+    const mainBtn = document.getElementById('det-main-action');
+    const hintEl = document.getElementById('det-action-hint');
+
+    const updateStatus = async (targetStatus, title, text) => {
+      confirmModal({
+        title,
+        text,
+        yes: 'Ya, Lanjutkan',
+        onYes: async () => {
+          mainBtn.classList.add('is-loading');
+          mainBtn.disabled = true;
+          const upRes = await backend('admin_update_order_status', [admin.user_id, orderId, targetStatus], null);
+          mainBtn.classList.remove('is-loading');
+          mainBtn.disabled = false;
+          if (!upRes || !upRes.ok) {
+            toast((upRes && upRes.message) || 'Gagal mengubah status.', 'error');
+            return;
+          }
+          toast(upRes.message);
+          await loadDetail();
+        }
+      });
+    };
+
+    if (o.status === 'pending') {
+      mainBtn.textContent = 'Verifikasi Pembayaran';
+      hintEl.textContent = 'Menyetujui pembayaran akan otomatis menerbitkan e-ticket.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'paid';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Perubahan status akan memperbarui tiket dan kuota secara otomatis.');
+      };
+    } else if (o.status === 'paid') {
+      mainBtn.textContent = 'Batalkan Tiket';
+      hintEl.textContent = 'Pembatalan memerlukan konfirmasi dan mengembalikan kuota.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'cancelled';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Pembatalan akan menonaktifkan e-ticket dan mengembalikan kuota ke kategori.');
+      };
+    } else {
+      mainBtn.textContent = 'Simpan Perubahan Status';
+      hintEl.textContent = 'Pilih status baru pada dropdown di atas bila diperlukan.';
+      mainBtn.onclick = () => {
+        if (!sel.value) { toast('Pilih status baru terlebih dahulu.', 'warn'); return; }
+        updateStatus(sel.value, `UBAH STATUS KE ${sel.value.toUpperCase()}?`, 'Status pesanan akan diperbarui di database.');
+      };
+    }
+
+    // Tabel Tiket / Pemegang
+    document.getElementById('det-ticket-count').textContent = `Menampilkan ${tickets.length} data · Halaman 1 dari 1`;
+    const tBody = document.getElementById('det-tickets-body');
+    if (!tickets.length) {
+      tBody.innerHTML = `<tr><td colspan="4" class="muted">Belum ada data pemegang tiket.</td></tr>`;
+    } else {
+      tBody.innerHTML = tickets.map(t => {
+        const isPendingTicket = o.status === 'pending' || !t.ticket_code || String(t.ticket_code).includes('PENDING');
+        const codeLabel = isPendingTicket ? 'Belum diterbitkan' : esc(t.ticket_code);
+        const stLabel = o.status === 'pending'
+          ? '<span style="color:#f59e0b">Pending</span>'
+          : (t.status === 'valid' ? '<span style="color:#22c55e">Valid</span>' : `<span class="muted">${esc(t.status)}</span>`);
+        return `
+          <tr>
+            <td style="font-weight:500">${codeLabel}</td>
+            <td>${esc(t.holder_name || u.full_name || '-')}</td>
+            <td>${esc((t.ticket_categories || {}).name || catName)}</td>
+            <td>${stLabel}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    // Riwayat Pembayaran
+    if (pay) {
+      document.getElementById('det-pay-ref').textContent = `${pay.reference_code || 'PAY-' + orderId} / ${pay.method || 'Virtual Account'}`;
+      if (o.status === 'paid' || pay.status === 'success') {
+        const pDate = pay.paid_at ? new Date(pay.paid_at).toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB' : '';
+        document.getElementById('det-pay-status').textContent = `Success${pDate ? ' · ' + pDate : ''}`;
+        document.getElementById('det-pay-note').textContent = `${tickets.length} e-ticket sudah diterbitkan untuk pemegang di atas.`;
+      } else {
+        document.getElementById('det-pay-status').textContent = 'Pending · Menunggu verifikasi';
+        document.getElementById('det-pay-note').textContent = 'Tiket dibuat setelah pembayaran disetujui.';
+      }
+    } else {
+      document.getElementById('det-pay-ref').textContent = `PAY-${String(orderId).padStart(4, '0')} / Transfer`;
+      document.getElementById('det-pay-status').textContent = o.status === 'paid' ? 'Success' : 'Pending · Menunggu verifikasi';
+      document.getElementById('det-pay-note').textContent = o.status === 'paid' ? 'E-ticket telah diterbitkan.' : 'Tiket dibuat setelah pembayaran disetujui.';
+    }
+  };
+
+  await loadDetail();
 }

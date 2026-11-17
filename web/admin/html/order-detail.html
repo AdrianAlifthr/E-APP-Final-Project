@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Detail Pesanan · Panel Panitia</title>
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <aside class="adm-side" id="admin-sidebar"></aside>
+
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <div>
+          <div class="adm-crumb">Panel Panitia / Pesanan</div>
+          <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+        </div>
+        <div class="adm-top-actions">
+          <span style="font-size:13px" id="top-admin-name">Admin Publikasi</span>
+        </div>
+      </header>
+
+      <section class="adm-hero-row">
+        <div>
+          <p class="eyebrow">PESANAN / DETAIL</p>
+          <h1 class="adm-title" id="det-code">TW-000000-0000</h1>
+          <p class="adm-stamp" id="det-created">Memuat detail pesanan...</p>
+        </div>
+        <button class="btn btn-primary" onclick="window.location.href='orders.html'">← Pesanan</button>
+      </section>
+
+      <!-- Baris Atas: Ringkasan Pesanan & Data Pembeli -->
+      <section class="dash-grid" style="margin-bottom:20px">
+        <article class="card box" style="gap:16px">
+          <div><span id="det-status-badge" style="font-size:12px;font-weight:500">-</span></div>
+          <h2 class="box-title" style="font-size:32px">THE WEEKND / JAKARTA</h2>
+          <p class="muted" style="font-size:13px">14 Agustus 2027 · GBK · Gate 16.00 WIB</p>
+
+          <div id="det-items-summary" style="display:flex;flex-direction:column;gap:12px;font-size:14px;margin-top:8px"></div>
+
+          <hr style="border:0;border-top:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;font-size:14px">
+            <span class="muted">Total pesanan</span>
+            <strong id="det-total">Rp0</strong>
+          </div>
+        </article>
+
+        <article class="card box" style="gap:16px">
+          <h2 class="box-title" style="font-size:28px">PEMBELI</h2>
+          <div style="font-size:18px;font-weight:500" id="det-buyer-name">-</div>
+          <div class="muted" style="font-size:13px" id="det-buyer-email">-</div>
+          <div class="muted" style="font-size:13px" id="det-buyer-phone">-</div>
+
+          <div class="field" style="margin-top:8px">
+            <select class="input" id="det-status-select" style="width:auto;min-width:180px;background:var(--raised);cursor:pointer">
+              <option value="">Ubah Status</option>
+              <option value="paid">Paid (Lunas)</option>
+              <option value="pending">Pending</option>
+              <option value="cancelled">Cancelled (Dibatalkan)</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-block" id="det-main-action">Simpan Status</button>
+          <p class="muted" id="det-action-hint" style="font-size:12px"></p>
+        </article>
+      </section>
+
+      <!-- Baris Tengah: Daftar Pemegang Tiket -->
+      <article class="card box" style="gap:16px;margin-bottom:20px">
+        <div style="overflow-x:auto">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th>KODE TIKET</th>
+                <th>PEMEGANG</th>
+                <th>KATEGORI</th>
+                <th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody id="det-tickets-body">
+              <tr><td colspan="4" class="muted">Memuat daftar tiket...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-2)">
+          <span id="det-ticket-count">Menampilkan 0 data · Halaman 1 dari 1</span>
+          <div style="display:flex;align-items:center;gap:14px">
+            <span style="opacity:.5">←</span>
+            <span style="color:var(--text)">1</span>
+            <span style="opacity:.5">→</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Baris Bawah: Riwayat Pembayaran -->
+      <article class="card box" style="gap:14px">
+        <h2 class="box-title" style="font-size:28px">RIWAYAT PEMBAYARAN</h2>
+        <div style="display:flex;justify-content:space-between;font-size:14px">
+          <span class="muted">Referensi / metode</span>
+          <strong id="det-pay-ref">-</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:14px">
+          <span class="muted">Status</span>
+          <strong id="det-pay-status">-</strong>
+        </div>
+        <p class="muted" id="det-pay-note" style="font-size:13px;margin-top:4px"></p>
+      </article>
+
+      <footer class="a1-foot">PROYEK AKADEMIK · DATA TERHUBUNG KE SUPABASE</footer>
+    </div>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminOrderDetail);</script>
+</body>
+</html>

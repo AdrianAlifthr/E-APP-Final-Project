@@ -773,5 +773,152 @@ def delete_ticket_category(user_id, category_id):
     except Exception as exc:
         return _err(exc, "Gagal menghapus kategori tiket")
 
+@eel.expose
+def get_admin_orders(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        orders = (
+            supabase.table("orders")
+            .select("order_id,order_code,user_id,total_amount,status,created_at,users!user_id(full_name,email,phone)")
+            .order("created_at", desc=True)
+            .execute()
+            .data or []
+        )
+        items = (
+            supabase.table("order_items")
+            .select("order_id,quantity,subtotal,category_id,ticket_categories(name)")
+            .execute()
+            .data or []
+        )
+        cats = get_ticket_categories()
+
+        item_map = {}
+        for it in items:
+            oid = it["order_id"]
+            item_map.setdefault(oid, []).append(it)
+
+        result = []
+        for o in orders:
+            oid = o["order_id"]
+            o_items = item_map.get(oid, [])
+            total_qty = sum(int(x.get("quantity") or 0) for x in o_items)
+            cat_names = list({(x.get("ticket_categories") or {}).get("name") for x in o_items if (x.get("ticket_categories") or {}).get("name")})
+            u = o.get("users") or {}
+            result.append({
+                "order_id": oid,
+                "order_code": o["order_code"],
+                "buyer_name": u.get("full_name") or "Pengunjung",
+                "buyer_email": u.get("email") or "-",
+                "total_tickets": total_qty,
+                "categories": cat_names,
+                "total_amount": float(o.get("total_amount") or 0),
+                "status": o.get("status", "pending"),
+                "created_at": o.get("created_at"),
+            })
+
+        return {"ok": True, "orders": result, "categories": cats}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat daftar pesanan")
+
+
+@eel.expose
+def get_admin_order_detail(user_id, order_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        o_res = (
+            supabase.table("orders")
+            .select("*, users!user_id(full_name,email,phone)")
+            .eq("order_id", order_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not o_res:
+            return {"ok": False, "message": "Pesanan tidak ditemukan."}
+        order = o_res[0]
+
+        items = (
+            supabase.table("order_items")
+            .select("*, ticket_categories(name,price)")
+            .eq("order_id", order_id)
+            .execute()
+            .data or []
+        )
+        tickets = (
+            supabase.table("tickets")
+            .select("*, ticket_categories(name)")
+            .eq("order_id", order_id)
+            .order("ticket_id")
+            .execute()
+            .data or []
+        )
+        payments = (
+            supabase.table("payments")
+            .select("*")
+            .eq("order_id", order_id)
+            .order("payment_id", desc=True)
+            .execute()
+            .data or []
+        )
+
+        return {
+            "ok": True,
+            "order": order,
+            "items": items,
+            "tickets": tickets,
+            "payment": payments[0] if payments else None,
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal memuat detail pesanan")
+
+
+@eel.expose
+def admin_update_order_status(user_id, order_id, new_status):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    if new_status not in ("pending", "paid", "cancelled", "expired"):
+        return {"ok": False, "message": "Status pesanan tidak valid."}
+    try:
+        o_res = supabase.table("orders").select("*").eq("order_id", order_id).limit(1).execute().data
+        if not o_res:
+            return {"ok": False, "message": "Pesanan tidak ditemukan."}
+        order = o_res[0]
+        old_status = order.get("status")
+        if old_status == new_status:
+            return {"ok": True, "message": "Status pesanan sudah sesuai."}
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        supabase.table("orders").update({"status": new_status}).eq("order_id", order_id).execute()
+
+        # Jika diverifikasi menjadi PAID -> update payment & terbitkan kode tiket
+        if new_status == "paid":
+            supabase.table("payments").update({"status": "success", "paid_at": now_iso}).eq("order_id", order_id).execute()
+            t_list = supabase.table("tickets").select("ticket_id,ticket_code").eq("order_id", order_id).execute().data or []
+            for idx, t in enumerate(t_list, start=1):
+                code = t.get("ticket_code")
+                if not code or "PENDING" in str(code).upper():
+                    code = f"TW-C1-{int(order_id):04d}{idx:02d}"
+                supabase.table("tickets").update({"ticket_code": code, "status": "valid"}).eq("ticket_id", t["ticket_id"]).execute()
+
+        # Jika dibatalkan / expired dari status aktif -> batalkan tiket & kembalikan kuota terjual
+        elif new_status in ("cancelled", "expired") and old_status in ("pending", "paid"):
+            supabase.table("tickets").update({"status": "cancelled"}).eq("order_id", order_id).execute()
+            if new_status == "cancelled":
+                supabase.table("payments").update({"status": "failed"}).eq("order_id", order_id).execute()
+            items = supabase.table("order_items").select("category_id,quantity").eq("order_id", order_id).execute().data or []
+            for it in items:
+                cid = it["category_id"]
+                qty = int(it.get("quantity") or 0)
+                cat = supabase.table("ticket_categories").select("sold").eq("category_id", cid).limit(1).execute().data
+                if cat:
+                    new_sold = max(0, int(cat[0].get("sold") or 0) - qty)
+                    supabase.table("ticket_categories").update({"sold": new_sold}).eq("category_id", cid).execute()
+
+        return {"ok": True, "message": f"Status pesanan berhasil diubah menjadi {new_status}."}
+    except Exception as exc:
+        return _err(exc, "Gagal memperbarui status pesanan")
+
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))
