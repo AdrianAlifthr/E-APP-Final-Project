@@ -17,7 +17,7 @@ function renderAdminLayout(activeMenu) {
     { id: 'pesanan', label: '— Pesanan', href: 'orders.html' },
     { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
-    { id: 'voucher', label: '— Voucher', locked: true },
+    { id: 'voucher', label: '— Voucher', href: 'voucher.html' },
     { id: 'checkin', label: '— Check-in', locked: true },
     { id: 'laporan', label: '— Laporan', locked: true },
     { id: 'pengguna', label: '— Pengguna', locked: true },
@@ -69,7 +69,6 @@ function renderAdminLayout(activeMenu) {
       <button type="button" class="adm-logout" id="admin-logout">Keluar</button>
     </div>`;
 
-  // Pasang event navigasi & logout
   side.querySelectorAll("[data-href]").forEach((btn) => {
     btn.onclick = () => {
       window.location.href = btn.dataset.href;
@@ -107,6 +106,7 @@ function renderAdminLayout(activeMenu) {
       },
     });
 }
+
 /* ===== Admin Panel Logic (A1 Login & A2 Dashboard) ===== */
 let _adminUser = null;
 let _dashData = null;
@@ -182,7 +182,6 @@ async function initAdminDashboard() {
 
   renderAdminLayout("dashboard");
 
-  // Filter 7 hari / 30 hari
   document.querySelectorAll("#chart-range button").forEach((btn) => {
     btn.onclick = () => {
       document
@@ -194,13 +193,11 @@ async function initAdminDashboard() {
     };
   });
 
-  // Pencarian pengumuman
   document.getElementById("search-ann").addEventListener("input", (e) => {
     if (_dashData)
       renderAnnouncements(_dashData.announcements || [], e.target.value);
   });
 
-  // Modal buat pengumuman
   document.getElementById("btn-new-ann").onclick = openAnnouncementModal;
   document.getElementById("btn-manage-ann").onclick = openAnnouncementModal;
 
@@ -234,7 +231,6 @@ async function loadDashboardData() {
   document.getElementById("dash-timestamp").textContent =
     `Ringkasan per ${tgl} · ${jam} WIB`;
 
-  // KPI
   const k = res.kpi;
   document.getElementById("kpi-sold").textContent = Number(
     k.total_sold,
@@ -251,20 +247,15 @@ async function loadDashboardData() {
     k.checked_in,
   ).toLocaleString("id-ID");
 
-  // Chart
   document.getElementById("chart-sub").textContent =
     `${Number(res.chart_total).toLocaleString("id-ID")} tiket / ${_activeDays} hari terakhir`;
   renderSalesChart(res.chart || []);
 
-  // Quota
   document.getElementById("quota-sub").textContent =
     `${Number(k.remaining_total).toLocaleString("id-ID")} tiket masih tersedia`;
   renderQuotaList(res.categories || []);
 
-  // Orders
   renderRecentOrders(res.recent_orders || []);
-
-  // Announcements
   renderAnnouncements(
     res.announcements || [],
     document.getElementById("search-ann").value,
@@ -458,6 +449,7 @@ function openAnnouncementModal() {
 
   document.body.appendChild(ov);
 }
+
 /* ----- A3: Kelola Konser ----- */
 async function initAdminConcert() {
   const admin = getAdminSession();
@@ -537,8 +529,6 @@ async function initAdminConcertEdit() {
     )
     .join("");
 
-  // Tombol Venue Baru
-  // Tombol Venue Baru (Modal Form HTML Lengkap)
   document.getElementById("btn-new-venue").onclick = () => {
     const ov = document.createElement("div");
     ov.className = "overlay";
@@ -607,7 +597,6 @@ async function initAdminConcertEdit() {
         return;
       }
 
-      // Masukkan venue baru langsung ke dropdown dan otomatis pilih
       const newVenue = addRes.venue || {};
       if (newVenue.venue_id) {
         const opt = document.createElement("option");
@@ -625,7 +614,7 @@ async function initAdminConcertEdit() {
     document.body.appendChild(ov);
     ov.querySelector("#v-name").focus();
   };
-  // Submit form edit
+
   document.getElementById("concert-form").onsubmit = async (e) => {
     e.preventDefault();
     const saveBtn = document.getElementById("btn-save");
@@ -662,6 +651,7 @@ async function initAdminConcertEdit() {
     setTimeout(() => (window.location.href = "concert.html"), 1000);
   };
 }
+
 /* ----- A4: Kategori Tiket ----- */
 let _catList = [];
 
@@ -1173,8 +1163,18 @@ function openVoucherModal(admin, item = null) {
 
     if (!res || !res.ok) {
       toast((res && res.message) || "Gagal menyimpan voucher.", "error");
-  ov.querySelector('#c-name').focus();
+      return;
+    }
+
+    ov.remove();
+    toast(res.message || "Voucher berhasil disimpan!");
+    await loadVouchers(admin);
+  };
+
+  document.body.appendChild(ov);
+  ov.querySelector("#v-code").focus();
 }
+
 /* ----- A5: Kelola Pesanan ----- */
 let _allOrders = [];
 
@@ -1293,13 +1293,11 @@ async function initAdminOrderDetail() {
 
   renderAdminLayout('pesanan');
 
-  // 👇 JANGAN dibungkus Number(), biarkan string agar mendukung UUID maupun integer
   const orderId = new URLSearchParams(window.location.search).get('id');
   if (!orderId) { window.location.href = 'orders.html'; return; }
 
   const loadDetail = async () => {
     const res = await backend('get_admin_order_detail', [admin.user_id, orderId], null);
-    // ... sisa kode berikutnya sama ...
     if (!res || !res.ok) {
       toast((res && res.message) || 'Gagal memuat detail pesanan.', 'error');
       return;
@@ -1320,7 +1318,6 @@ async function initAdminOrderDetail() {
     stEl.textContent = o.status.charAt(0).toUpperCase() + o.status.slice(1);
     stEl.style.color = stColors[o.status] || '#fff';
 
-    // Rincian item pesanan
     const firstItem = items[0] || {};
     const catName = (firstItem.ticket_categories || {}).name || 'Tiket';
     const qtySum = items.reduce((a, b) => a + Number(b.quantity || 0), 0);
@@ -1335,7 +1332,6 @@ async function initAdminOrderDetail() {
       <div style="display:flex;justify-content:space-between"><span class="muted">Voucher / diskon</span><strong>${disc > 0 ? '−' + rupiah(disc) : '— / Rp0'}</strong></div>`;
     document.getElementById('det-total').textContent = rupiah(o.total_amount);
 
-    // Pembeli & Aksi Status
     document.getElementById('det-buyer-name').textContent = u.full_name || 'Pengunjung';
     document.getElementById('det-buyer-email').textContent = u.email || '-';
     document.getElementById('det-buyer-phone').textContent = u.phone || '-';
@@ -1388,7 +1384,6 @@ async function initAdminOrderDetail() {
       };
     }
 
-    // Tabel Tiket / Pemegang
     document.getElementById('det-ticket-count').textContent = `Menampilkan ${tickets.length} data · Halaman 1 dari 1`;
     const tBody = document.getElementById('det-tickets-body');
     if (!tickets.length) {
@@ -1410,7 +1405,6 @@ async function initAdminOrderDetail() {
       }).join('');
     }
 
-    // Riwayat Pembayaran
     if (pay) {
       document.getElementById('det-pay-ref').textContent = `${pay.reference_code || 'PAY-' + orderId} / ${pay.method || 'Virtual Account'}`;
       if (o.status === 'paid' || pay.status === 'success') {
@@ -1430,6 +1424,7 @@ async function initAdminOrderDetail() {
 
   await loadDetail();
 }
+
 /* ----- A7: Pembayaran & Verifikasi ----- */
 let _allPayments = [];
 
@@ -1459,7 +1454,6 @@ async function loadAdminPayments(admin) {
 
   _allPayments = res.payments || [];
 
-  // Isi opsi metode pembayaran unik ke dropdown
   const methodSel = document.getElementById('pay-method');
   const currentVal = methodSel.value;
   const methods = [...new Set(_allPayments.map(p => p.method).filter(Boolean))];
@@ -1610,15 +1604,7 @@ function openVerifyPaymentModal(admin, pay) {
     }
 
     ov.remove();
-    toast(res.message || "Voucher berhasil disimpan!");
-    await loadVouchers(admin);
-  };
 
-  document.body.appendChild(ov);
-  ov.querySelector("#v-code").focus();
-}
-
-    // Tampilkan banner notifikasi di atas judul halaman sesuai desain A7
     const banner = document.getElementById('pay-feedback-banner');
     if (banner) {
       banner.hidden = false;
