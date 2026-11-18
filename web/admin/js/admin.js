@@ -1458,13 +1458,12 @@ function renderPaymentsTable() {
 
   tbody.innerHTML = filtered.map(p => {
     const isPending = p.status === 'pending';
-    const actionEl = isPending
-      ? `<button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>`
-      : `<div style="display:flex;gap:12px;align-items:center">
-           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>
-           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text-2);font-size:12px;padding:0;cursor:pointer">Verifikasi</button>
-         </div>`;
-
+   const actionEl = isPending
+      ? `<div style="display:flex;gap:12px;align-items:center">
+           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text-2);font-size:13px">Detail</a>
+           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>
+         </div>`
+      : `<a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>`;
     return `
       <tr>
         <td style="font-weight:500">${esc(p.reference_code)}</td>
