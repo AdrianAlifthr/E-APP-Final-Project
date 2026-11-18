@@ -1177,6 +1177,8 @@ function openVoucherModal(admin, item = null) {
 
 /* ----- A5: Kelola Pesanan ----- */
 let _allOrders = [];
+let _ordPage = 1;
+const ORD_PER_PAGE = 10;
 
 async function initAdminOrders() {
   const admin = getAdminSession();
@@ -1199,7 +1201,10 @@ async function initAdminOrders() {
     catSel.appendChild(opt);
   });
 
-  const applyFilter = () => renderOrdersTable();
+  const applyFilter = () => {
+    _ordPage = 1;
+    renderOrdersTable();
+  };
   document.getElementById('ord-q').addEventListener('input', applyFilter);
   document.getElementById('top-search-ord').addEventListener('input', (e) => {
     document.getElementById('ord-q').value = e.target.value;
@@ -1216,6 +1221,17 @@ async function initAdminOrders() {
     document.getElementById('ord-range').value = 'all';
     document.getElementById('ord-cat').value = '';
     applyFilter();
+  };
+
+  document.getElementById('ord-prev').onclick = () => {
+    if (_ordPage > 1) {
+      _ordPage--;
+      renderOrdersTable();
+    }
+  };
+  document.getElementById('ord-next').onclick = () => {
+    _ordPage++;
+    renderOrdersTable();
   };
 
   document.getElementById('btn-export-csv').onclick = () => exportOrdersCsv(getFilteredOrders());
@@ -1244,10 +1260,29 @@ function getFilteredOrders() {
 
 function renderOrdersTable() {
   const list = getFilteredOrders();
-  const tbody = document.getElementById('ord-table-body');
-  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman 1 dari 1`;
+  const pages = Math.max(1, Math.ceil(list.length / ORD_PER_PAGE));
+  _ordPage = Math.min(Math.max(1, _ordPage), pages);
+  const slice = list.slice((_ordPage - 1) * ORD_PER_PAGE, _ordPage * ORD_PER_PAGE);
 
-  if (!list.length) {
+  const tbody = document.getElementById('ord-table-body');
+  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman ${_ordPage} dari ${pages}`;
+
+  const pageNoEl = document.getElementById('ord-page-no');
+  const prevBtn = document.getElementById('ord-prev');
+  const nextBtn = document.getElementById('ord-next');
+  if (pageNoEl) pageNoEl.textContent = _ordPage;
+  if (prevBtn) {
+    prevBtn.disabled = _ordPage <= 1;
+    prevBtn.style.opacity = _ordPage <= 1 ? '0.4' : '1';
+    prevBtn.style.cursor = _ordPage <= 1 ? 'not-allowed' : 'pointer';
+  }
+  if (nextBtn) {
+    nextBtn.disabled = _ordPage >= pages;
+    nextBtn.style.opacity = _ordPage >= pages ? '0.4' : '1';
+    nextBtn.style.cursor = _ordPage >= pages ? 'not-allowed' : 'pointer';
+  }
+
+  if (!slice.length) {
     tbody.innerHTML = `<tr><td colspan="6" class="muted">Tidak ada pesanan yang cocok dengan filter.</td></tr>`;
     return;
   }
@@ -1262,7 +1297,7 @@ function renderOrdersTable() {
     return map[s] || esc(s);
   };
 
-  tbody.innerHTML = list.map(o => `
+  tbody.innerHTML = slice.map(o => `
     <tr>
       <td style="font-weight:500">${esc(o.order_code)}</td>
       <td>${esc(o.buyer_name)}</td>
@@ -1379,6 +1414,8 @@ async function initAdminOrderDetail() {
 
 /* ----- A7: Pembayaran & Verifikasi ----- */
 let _allPayments = [];
+let _payPage = 1;
+const PAY_PER_PAGE = 10;
 
 async function initAdminPayments() {
   const admin = getAdminSession();
@@ -1386,13 +1423,29 @@ async function initAdminPayments() {
 
   renderAdminLayout('pembayaran');
 
-  document.getElementById('pay-q').addEventListener('input', renderPaymentsTable);
+  const applyPayFilter = () => {
+    _payPage = 1;
+    renderPaymentsTable();
+  };
+
+  document.getElementById('pay-q').addEventListener('input', applyPayFilter);
   document.getElementById('top-search-pay').addEventListener('input', (e) => {
     document.getElementById('pay-q').value = e.target.value;
-    renderPaymentsTable();
+    applyPayFilter();
   });
-  document.getElementById('pay-status').addEventListener('change', renderPaymentsTable);
-  document.getElementById('pay-method').addEventListener('change', renderPaymentsTable);
+  document.getElementById('pay-status').addEventListener('change', applyPayFilter);
+  document.getElementById('pay-method').addEventListener('change', applyPayFilter);
+
+  document.getElementById('pay-prev').onclick = () => {
+    if (_payPage > 1) {
+      _payPage--;
+      renderPaymentsTable();
+    }
+  };
+  document.getElementById('pay-next').onclick = () => {
+    _payPage++;
+    renderPaymentsTable();
+  };
 
   await loadAdminPayments(admin);
 }
@@ -1434,10 +1487,29 @@ function renderPaymentsTable() {
     return true;
   });
 
-  const tbody = document.getElementById('pay-table-body');
-  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman 1 dari 1`;
+  const pages = Math.max(1, Math.ceil(filtered.length / PAY_PER_PAGE));
+  _payPage = Math.min(Math.max(1, _payPage), pages);
+  const slice = filtered.slice((_payPage - 1) * PAY_PER_PAGE, _payPage * PAY_PER_PAGE);
 
-  if (!filtered.length) {
+  const tbody = document.getElementById('pay-table-body');
+  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman ${_payPage} dari ${pages}`;
+
+  const pageNoEl = document.getElementById('pay-page-no');
+  const prevBtn = document.getElementById('pay-prev');
+  const nextBtn = document.getElementById('pay-next');
+  if (pageNoEl) pageNoEl.textContent = _payPage;
+  if (prevBtn) {
+    prevBtn.disabled = _payPage <= 1;
+    prevBtn.style.opacity = _payPage <= 1 ? '0.4' : '1';
+    prevBtn.style.cursor = _payPage <= 1 ? 'not-allowed' : 'pointer';
+  }
+  if (nextBtn) {
+    nextBtn.disabled = _payPage >= pages;
+    nextBtn.style.opacity = _payPage >= pages ? '0.4' : '1';
+    nextBtn.style.cursor = _payPage >= pages ? 'not-allowed' : 'pointer';
+  }
+
+  if (!slice.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="muted">Tidak ada transaksi pembayaran yang cocok.</td></tr>`;
     return;
   }
@@ -1456,14 +1528,15 @@ function renderPaymentsTable() {
     return `<span style="color:#f59e0b">${esc(s)}</span>`;
   };
 
-  tbody.innerHTML = filtered.map(p => {
+  tbody.innerHTML = slice.map(p => {
     const isPending = p.status === 'pending';
-   const actionEl = isPending
+    const actionEl = isPending
       ? `<div style="display:flex;gap:12px;align-items:center">
            <a href="order-detail.html?id=${p.order_id}" style="color:var(--text-2);font-size:13px">Detail</a>
            <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>
          </div>`
       : `<a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>`;
+
     return `
       <tr>
         <td style="font-weight:500">${esc(p.reference_code)}</td>
