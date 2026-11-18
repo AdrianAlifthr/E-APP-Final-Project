@@ -1336,54 +1336,6 @@ async function initAdminOrderDetail() {
     document.getElementById('det-buyer-email').textContent = u.email || '-';
     document.getElementById('det-buyer-phone').textContent = u.phone || '-';
 
-    const sel = document.getElementById('det-status-select');
-    const mainBtn = document.getElementById('det-main-action');
-    const hintEl = document.getElementById('det-action-hint');
-
-    const updateStatus = async (targetStatus, title, text) => {
-      confirmModal({
-        title,
-        text,
-        yes: 'Ya, Lanjutkan',
-        onYes: async () => {
-          mainBtn.classList.add('is-loading');
-          mainBtn.disabled = true;
-          const upRes = await backend('admin_update_order_status', [admin.user_id, orderId, targetStatus], null);
-          mainBtn.classList.remove('is-loading');
-          mainBtn.disabled = false;
-          if (!upRes || !upRes.ok) {
-            toast((upRes && upRes.message) || 'Gagal mengubah status.', 'error');
-            return;
-          }
-          toast(upRes.message);
-          await loadDetail();
-        }
-      });
-    };
-
-    if (o.status === 'pending') {
-      mainBtn.textContent = 'Verifikasi Pembayaran';
-      hintEl.textContent = 'Menyetujui pembayaran akan otomatis menerbitkan e-ticket.';
-      mainBtn.onclick = () => {
-        const chosen = sel.value || 'paid';
-        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Perubahan status akan memperbarui tiket dan kuota secara otomatis.');
-      };
-    } else if (o.status === 'paid') {
-      mainBtn.textContent = 'Batalkan Tiket';
-      hintEl.textContent = 'Pembatalan memerlukan konfirmasi dan mengembalikan kuota.';
-      mainBtn.onclick = () => {
-        const chosen = sel.value || 'cancelled';
-        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Pembatalan akan menonaktifkan e-ticket dan mengembalikan kuota ke kategori.');
-      };
-    } else {
-      mainBtn.textContent = 'Simpan Perubahan Status';
-      hintEl.textContent = 'Pilih status baru pada dropdown di atas bila diperlukan.';
-      mainBtn.onclick = () => {
-        if (!sel.value) { toast('Pilih status baru terlebih dahulu.', 'warn'); return; }
-        updateStatus(sel.value, `UBAH STATUS KE ${sel.value.toUpperCase()}?`, 'Status pesanan akan diperbarui di database.');
-      };
-    }
-
     document.getElementById('det-ticket-count').textContent = `Menampilkan ${tickets.length} data · Halaman 1 dari 1`;
     const tBody = document.getElementById('det-tickets-body');
     if (!tickets.length) {
