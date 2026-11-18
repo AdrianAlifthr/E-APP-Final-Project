@@ -4,10 +4,14 @@ const FILTERS = [['all', 'Semua'], ['pending', 'Pending'], ['paid', 'Paid'], ['e
 
 const jam = ms => new Date(ms).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta'}).replace(':', '.') + ' WIB';
 
+const isAwaitingVerification = o => o.status === 'pending' && o.payment && o.expires_in_ms > 86400000;
+
 function actionsFor(o){
   const detail = `<a class="btn btn-outline" data-route="U11" data-param="id" data-id="${esc(o.order_id)}">Detail Pesanan</a>`;
   if (o.status === 'paid')
     return `<a class="btn btn-primary" data-route="U9" data-param="order" data-id="${esc(o.order_id)}">Lihat E-Ticket →</a>${detail}`;
+  if (isAwaitingVerification(o))
+    return detail;
   if (o.status === 'pending')
     return `<button class="btn btn-primary" data-resume="${esc(o.order_id)}">Lanjutkan Bayar →</button>${detail}`;
   return `<a class="btn btn-primary" data-route="U4">Pesan Ulang →</a>${detail}`;
@@ -27,9 +31,11 @@ function renderList(){
       <p class="muted" style="font-size:14px">${filter === 'all' ? 'Yuk amankan tiket konser The Weeknd sebelum kehabisan.' : 'Coba pilih filter lain.'}</p>
       ${filter === 'all' ? '<a class="btn btn-primary" data-route="U4">Beli Tiket →</a>' : ''}</div>`;
   } else {
-    box.innerHTML = list.map(o => `
+    box.innerHTML = list.map(o => {
+      const badgeLabel = isAwaitingVerification(o) ? 'Menunggu Verifikasi' : o.status;
+      return `
       <article class="card order-card">
-        <div class="order-top"><span>#${esc(o.order_code)}</span><span class="order-status st-${esc(o.status)}">${esc(o.status)}</span></div>
+        <div class="order-top"><span>#${esc(o.order_code)}</span><span class="order-status st-${esc(o.status)}">${esc(badgeLabel)}</span></div>
         <h2 class="order-title">THE WEEKND / AFTER HOURS TIL DAWN</h2>
         <div class="order-mid">
           <div class="detail"><p>${esc(o.items.map(i => `${i.quantity} × ${i.name}`).join(', '))}</p>
@@ -37,7 +43,8 @@ function renderList(){
           <p class="amount">${rupiah(o.total)}</p>
         </div>
         <div class="order-actions">${actionsFor(o)}</div>
-      </article>`).join('');
+      </article>`;
+    }).join('');
   }
   hydrateLinks(box);
 }

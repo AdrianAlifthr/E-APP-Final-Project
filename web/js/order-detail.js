@@ -1,7 +1,8 @@
 /* ===== U11 · Detail Pesanan ===== */
 const ST = {
-  paid: ['PAID / PEMBAYARAN BERHASIL', 'st-paid'],
+  paid: ['PAID / PEMBAYARAN TERVERIFIKASI', 'st-paid'],
   pending: ['PENDING / MENUNGGU PEMBAYARAN', 'st-pending'],
+  verifying: ['MENUNGGU VERIFIKASI PANITIA', 'st-pending'],
   expired: ['EXPIRED / WAKTU PEMBAYARAN HABIS', 'st-expired'],
   cancelled: ['CANCELLED / PESANAN DIBATALKAN', 'st-cancelled'],
   refunded: ['REFUNDED / DANA DIKEMBALIKAN', 'st-refunded']
@@ -9,8 +10,11 @@ const ST = {
 const wib = ms => new Date(ms).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta'}).replace(':', '.');
 const tglPendek = ms => new Date(ms).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'});
 
+const isAwaitingVerification = o => o.status === 'pending' && o.payment && o.expires_in_ms > 86400000;
+
 function primaryAction(o){
   if (o.status === 'paid') return `<a class="btn btn-primary btn-block" data-route="U9" data-param="order" data-id="${esc(o.order_id)}">Lihat E-Ticket →</a>`;
+  if (isAwaitingVerification(o)) return `<div class="banner" style="margin-top:8px">Pembayaran sedang diverifikasi panitia. E-ticket akan dikirim ke email terdaftar setelah disetujui.</div>`;
   if (o.status === 'pending') return `<button class="btn btn-primary btn-block" id="resume-btn">Lanjutkan Bayar →</button>`;
   return `<a class="btn btn-primary btn-block" data-route="U4">Pesan Ulang →</a>`;
 }
@@ -23,7 +27,9 @@ async function initDetail(){
   const res = await backend('get_order', [id, user.user_id], null);
   if (!res) return toast('Server belum aktif. Jalankan lewat python main.py.', 'error');
   if (!res.ok){ sessionStorage.setItem('twk_flash', 'Pesanan tidak ditemukan.'); return go('U10'); }
-  const o = res.order, [stText, stCls] = ST[o.status] || [o.status.toUpperCase(), ''];
+  const o = res.order;
+  const stKey = isAwaitingVerification(o) ? 'verifying' : o.status;
+  const [stText, stCls] = ST[stKey] || [o.status.toUpperCase(), ''];
 
   document.getElementById('o-code').textContent = 'PESANAN #' + o.order_code;
   document.getElementById('o-created').textContent = `Dibuat ${tanggal(o.created_at_ms)} · ${wib(o.created_at_ms)} WIB`;
@@ -31,11 +37,12 @@ async function initDetail(){
   const rows = o.items.map(i => `<div class="kv"><span>${esc(i.name)} × ${i.quantity}</span><span style="color:var(--text)">${rupiah(i.subtotal)}</span></div>`).join('');
   const voucher = o.voucher_code ? `${esc(o.voucher_code)} (−${rupiah(o.discount)})` : 'Tidak digunakan';
   const pay = o.payment || {};
-  const paidAt = pay.paid_at_ms ? `${tglPendek(pay.paid_at_ms)} · ${wib(pay.paid_at_ms)}` : '—';
+  const paidAt = pay.paid_at_ms ? `${tglPendek(pay.paid_at_ms)} · ${wib(pay.paid_at_ms)}` : (isAwaitingVerification(o) ? 'Menunggu verifikasi panitia' : '—');
   const people = o.holders.map((h, i) => {
     const t = o.tickets[i];
+    const pendingLabel = isAwaitingVerification(o) ? 'Menunggu verifikasi panitia (dikirim ke email)' : 'Tiket terbit setelah pembayaran';
     return `<div class="row-ticket"><p class="nm">${String(i + 1).padStart(2, '0')} / ${esc(h.holder_name)}</p>
-      <p class="cd ${t && t.status === 'valid' ? 'ok' : 'muted'}">${t ? esc(t.ticket_code) + ' · ' + (t.status === 'valid' ? 'Valid' : t.status === 'used' ? 'Sudah digunakan' : 'Dibatalkan') : 'Tiket terbit setelah pembayaran'}</p></div>`;
+      <p class="cd ${t && t.status === 'valid' ? 'ok' : 'muted'}">${t ? esc(t.ticket_code) + ' · ' + (t.status === 'valid' ? 'Valid' : t.status === 'used' ? 'Sudah digunakan' : 'Dibatalkan') : pendingLabel}</p></div>`;
   }).join('');
 
   document.getElementById('o-body').innerHTML = `
@@ -50,7 +57,7 @@ async function initDetail(){
       <div class="kv"><span>Total pembayaran</span><span style="color:var(--text)">${rupiah(o.total)}</span></div>
       <hr class="hr">
       <div class="kv"><span>Metode bayar</span><span style="color:var(--text)">${esc(pay.label || 'Belum dipilih')}</span></div>
-      <div class="kv"><span>Waktu pembayaran</span><span style="color:var(--text)">${paidAt}</span></div>
+      <div class="kv"><span>Status pembayaran</span><span style="color:var(--text)">${paidAt}</span></div>
       ${primaryAction(o)}
     </section>
     <section class="card panel">

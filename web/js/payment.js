@@ -111,6 +111,12 @@ async function initPayment(){
   if (order.status !== 'pending') return showExpiredModal();
   if (!order.payment) return go('U6');
 
+  // Jika user sudah klik bayar dan sedang menunggu verifikasi panitia (expires_in_ms > 24 jam)
+  if (order.expires_in_ms > 86400000) {
+    Store.del('twk_order');
+    return go('U11', {id: order.order_id});
+  }
+
   document.getElementById('order-code').textContent = 'PESANAN #' + order.order_code;
   renderCard(); renderSummary();
   startOrderTimer(Date.now() + order.expires_in_ms,
