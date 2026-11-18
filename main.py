@@ -4,7 +4,7 @@ Semua data konser, tiket, pesanan, pembayaran, e-ticket, dan berita dibaca/disim
 import re
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 import smtplib
 from email.message import EmailMessage
@@ -950,6 +950,13 @@ def save_voucher(user_id, data):
         return {"ok": False, "field": "quota", "message": "Kuota minimal 1."}
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
         return {"ok": False, "field": "valid_until", "message": "Tanggal berlaku sampai wajib diisi."}
+    try:
+        valid_until_date = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        return {"ok": False, "field": "valid_until", "message": "Tanggal masa berlaku tidak valid."}
+    today_wib = datetime.now(timezone(timedelta(hours=7))).date()
+    if valid_until_date < today_wib:
+        return {"ok": False, "field": "valid_until", "message": "Tanggal masa berlaku tidak boleh sebelum hari ini."}
 
     try:
         dup = supabase.table("vouchers").select(VCOL["id"]).eq(VCOL["code"], code).execute().data or []
@@ -983,6 +990,23 @@ def toggle_voucher(user_id, voucher_id, active):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}
     try:
+        if active:
+            rows = (
+                supabase.table("vouchers")
+                .select(f"{VCOL['quota']},{VCOL['end']}")
+                .eq(VCOL["id"], voucher_id)
+                .limit(1)
+                .execute()
+                .data or []
+            )
+            if not rows:
+                return {"ok": False, "message": "Voucher tidak ditemukan."}
+            used, _ = _voucher_usage()
+            quota = int(rows[0].get(VCOL["quota"]) or 0)
+            if used.get(voucher_id, 0) >= quota:
+                return {"ok": False, "message": "Kuota voucher sudah habis dan tidak bisa diaktifkan."}
+            if rows[0].get(VCOL["end"]) and _to_ms(rows[0][VCOL["end"]]) < _now_ms():
+                return {"ok": False, "message": "Voucher sudah kedaluwarsa dan tidak bisa diaktifkan."}
         supabase.table("vouchers").update({VCOL["active"]: bool(active)}).eq(VCOL["id"], voucher_id).execute()
         return {"ok": True, "message": "Voucher diaktifkan." if active else "Voucher dinonaktifkan."}
     except Exception as exc:
@@ -994,6 +1018,18 @@ def delete_voucher(user_id, voucher_id):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}
     try:
+        rows = (
+            supabase.table("vouchers")
+            .select(f"{VCOL['active']}")
+            .eq(VCOL["id"], voucher_id)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not rows:
+            return {"ok": False, "message": "Voucher tidak ditemukan."}
+        if rows[0].get(VCOL["active"], True):
+            return {"ok": False, "message": "Nonaktifkan voucher terlebih dahulu sebelum menghapus."}
         used, _ = _voucher_usage()
         if used.get(voucher_id, 0) > 0:
             return {"ok": False, "message": "Voucher yang sudah dipakai tidak bisa dihapus. Nonaktifkan saja."}
@@ -1295,6 +1331,240 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
             }
     except Exception as exc:
         return _err(exc, "Gagal memproses verifikasi pembayaran")
+
+
+# ---------------- ADMIN CHECK-IN ----------------
+
+def _normalize_ticket_code(ticket_code):
+    return re.sub(r"[^A-Z0-9]", "", str(ticket_code or "").upper())
+
+@eel.expose
+def get_admin_checkin_data(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+
+    try:
+        ticket_categories = (
+            supabase.table("ticket_categories")
+            .select("sold")
+            .execute()
+            .data or []
+        )
+        total_ticket_sales = sum(
+            int(category.get("sold") or 0)
+            for category in ticket_categories
+        )
+
+        paid_orders = (
+            supabase.table("orders")
+            .select("order_id")
+            .eq("status", "paid")
+            .execute()
+            .data or []
+        )
+        paid_order_ids = [str(o["order_id"]) for o in paid_orders]
+
+        tickets = []
+        if paid_order_ids:
+            tickets = (
+                supabase.table("tickets")
+                .select("ticket_id,ticket_code,holder_name,category_id,status,order_id")
+                .in_("order_id", paid_order_ids)
+                .execute()
+                .data or []
+            )
+
+        checkin_by_ticket = {}
+        ticket_ids = [str(ticket["ticket_id"]) for ticket in tickets]
+        if ticket_ids:
+            checkin_rows = (
+                supabase.table("checkins")
+                .select("ticket_id,checkin_time")
+                .in_("ticket_id", ticket_ids)
+                .order("checkin_time", desc=True)
+                .execute()
+                .data or []
+            )
+            checkin_by_ticket = {
+                str(row["ticket_id"]): row.get("checkin_time")
+                for row in checkin_rows
+            }
+
+        checked_in = [t for t in tickets if t["status"] == "used"]
+        sample_valid_code = next(
+            (str(t["ticket_code"]).strip().upper()
+             for t in tickets
+             if t["status"] == "valid" and t.get("ticket_code")),
+            ""
+        )
+        sample_used_code = next(
+            (str(t["ticket_code"]).strip().upper()
+             for t in checked_in
+             if t.get("ticket_code")),
+            ""
+        )
+        valid_ticket_list = [
+            {
+                "ticket_code": str(t["ticket_code"]).strip().upper(),
+                "holder_name": t.get("holder_name") or "-",
+                "status": t["status"]
+            }
+            for t in tickets
+            if t.get("ticket_code") and t["status"] in ("valid", "used")
+        ]
+
+        history = []
+        for ticket in checked_in:
+            category = (
+                supabase.table("ticket_categories")
+                .select("name")
+                .eq("category_id", ticket["category_id"])
+                .limit(1)
+                .execute().data or []
+            )
+
+            history.append({
+                "ticket_code": ticket["ticket_code"],
+                "holder_name": ticket["holder_name"],
+                "category": category[0]["name"] if category else "-",
+                "checked_in_at": checkin_by_ticket.get(str(ticket["ticket_id"]))
+            })
+
+        history.sort(
+            key=lambda item: item["checked_in_at"] or "",
+            reverse=True
+        )
+
+        return {
+            "ok": True,
+            "total_sold": total_ticket_sales,
+            "checked_in": len(checked_in),
+            "gate": "CAT 1 / PINTU 02",
+            "history": history[:10],
+            "tickets": valid_ticket_list,
+            "sample_valid_code": sample_valid_code,
+            "sample_used_code": sample_used_code
+        }
+
+    except Exception as exc:
+        return _err(exc, "Gagal mengambil data check-in")
+
+
+@eel.expose
+def admin_check_ticket(user_id, ticket_code):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+
+    ticket_code = (ticket_code or "").strip().upper()
+    normalized_code = _normalize_ticket_code(ticket_code)
+
+    if not normalized_code:
+        return {"ok": False, "message": "Masukkan kode tiket."}
+
+    try:
+        tickets = (
+            supabase.table("tickets")
+            .select("ticket_id,ticket_code,holder_name,category_id,status,order_id")
+            .execute()
+            .data or []
+        )
+        rows = [
+            t for t in tickets
+            if _normalize_ticket_code(t.get("ticket_code")) == normalized_code
+        ]
+
+        if not rows:
+            return {"ok": False, "message": "Tiket tidak ditemukan."}
+
+        ticket = rows[0]
+
+        if ticket["status"] == "used":
+            return {
+                "ok": False,
+                "status": "used",
+                "message": "Tiket sudah pernah digunakan."
+            }
+
+        if ticket["status"] != "valid":
+            return {
+                "ok": False,
+                "status": ticket["status"],
+                "message": "Tiket tidak valid atau belum aktif."
+            }
+
+        # Pastikan pesanan sudah dibayar
+        order = (
+            supabase.table("orders")
+            .select("status")
+            .eq("order_id", ticket["order_id"])
+            .limit(1)
+            .execute()
+            .data or []
+        )
+
+        if not order or order[0]["status"] != "paid":
+            return {
+                "ok": False,
+                "message": "Pembayaran tiket belum terverifikasi."
+            }
+
+        checkin_time = datetime.now(timezone.utc).isoformat()
+        result = (
+            supabase.table("tickets")
+            .update({
+                "status": "used"
+            })
+            .eq("ticket_id", ticket["ticket_id"])
+            .eq("status", "valid")
+            .execute()
+        )
+
+        if not result.data:
+            return {
+                "ok": False,
+                "message": "Tiket sudah diproses petugas lain."
+            }
+
+        try:
+            supabase.table("checkins").insert({
+                "ticket_id": ticket["ticket_id"],
+                "checked_by": str(user_id),
+                "checkin_time": checkin_time
+            }).execute()
+        except Exception:
+            rollback = (
+                supabase.table("tickets")
+                .update({"status": "valid"})
+                .eq("ticket_id", ticket["ticket_id"])
+                .eq("status", "used")
+                .execute()
+            )
+            if not rollback.data:
+                print("[CHECK-IN] Gagal mengembalikan status tiket setelah insert checkins gagal.")
+            raise
+
+        category = (
+            supabase.table("ticket_categories")
+            .select("name")
+            .eq("category_id", ticket["category_id"])
+            .limit(1)
+            .execute()
+            .data or []
+        )
+
+        return {
+            "ok": True,
+            "status": "valid",
+            "message": "TIKET VALID. Pengunjung boleh masuk.",
+            "ticket": {
+                "ticket_code": ticket["ticket_code"],
+                "holder_name": ticket["holder_name"],
+                "category": category[0]["name"] if category else "-"
+            }
+        }
+
+    except Exception as exc:
+        return _err(exc, "Gagal memvalidasi tiket")
 
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))
