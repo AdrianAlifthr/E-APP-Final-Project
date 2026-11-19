@@ -570,3 +570,69 @@
     display: none;
   }
 }
+
+
+/* =========================================
+   SIDEBAR FIX - SAMAKAN DENGAN DASHBOARD
+   Halaman: Laporan, Pengguna, Log Aktivitas
+   ========================================= */
+
+/* Ukuran sidebar mengikuti Dashboard */
+.admin-audit-shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+}
+
+/* Padding sidebar */
+.admin-audit-shell .adm-side {
+    padding: 24px 16px;
+}
+
+/* Ukuran logo THE WEEKND */
+.admin-audit-shell .adm-logo {
+    font-size: 28px;
+}
+
+/* Ukuran menu navigasi */
+.admin-audit-shell .adm-nav-item {
+    padding: 10px 12px;
+    font-size: 13px;
+}
+
+/* Ukuran kartu konser */
+.admin-audit-shell .adm-concert-pill {
+    padding: 12px 14px;
+}
+
+/* Ukuran judul konser */
+.admin-audit-shell .adm-concert-pill .t {
+    font-size: 18px;
+}
+
+/* =========================================
+   RESPONSIVE - MENGIKUTI DASHBOARD
+   ========================================= */
+
+@media (max-width: 860px) {
+
+    .admin-audit-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-audit-shell .adm-side {
+        padding: 24px 16px;
+    }
+
+    .admin-audit-shell .adm-side-top {
+        gap: 20px;
+    }
+
+    .admin-audit-shell .adm-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .admin-audit-shell .adm-side-bot {
+        display: flex;
+    }
+}
