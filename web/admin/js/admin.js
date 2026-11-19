@@ -389,6 +389,249 @@ function renderAnnouncements(list, keyword = "") {
     .join("");
 }
 
+let _checkinStream = null;
+let _checkinScanTimer = null;
+let _checkinScanning = false;
+let _sampleValidCode = "";
+let _sampleUsedCode = "";
+
+async function initAdminCheckin() {
+  const admin = getAdminSession();
+  if (!admin) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  renderAdminLayout("checkin");
+
+  const form = document.getElementById("checkin-form");
+  const codeInput = document.getElementById("ticket-code");
+  const topSearch = document.getElementById("top-checkin-search");
+
+  topSearch.addEventListener("input", () => {
+    codeInput.value = topSearch.value;
+  });
+  topSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = codeInput.value.trim();
+    if (!code) {
+      showCheckinResult(false, "Masukkan atau pindai kode tiket terlebih dahulu.");
+      codeInput.focus();
+      return;
+    }
+    await validateCheckinTicket(admin.user_id, code);
+  });
+
+  document.getElementById("valid-demo-btn").onclick = async () => {
+    if (!_sampleValidCode) {
+      showCheckinResult(false, "Belum ada tiket paid berstatus valid.");
+      return;
+    }
+    setDemoTicket(codeInput, _sampleValidCode);
+  };
+  document.getElementById("used-demo-btn").onclick = async () => {
+    if (!_sampleUsedCode) {
+      showCheckinResult(false, "Belum ada tiket paid berstatus sudah digunakan.");
+      return;
+    }
+    setDemoTicket(codeInput, _sampleUsedCode, "used");
+    await validateCheckinTicket(admin.user_id, _sampleUsedCode);
+  };
+  document.getElementById("scan-ticket-btn").onclick = startCheckinScanner;
+  document.getElementById("stop-scanner-btn").onclick = stopCheckinScanner;
+  window.addEventListener("pagehide", stopCheckinScanner);
+
+  await loadCheckinData(admin.user_id);
+}
+
+async function loadCheckinData(userId) {
+  const res = await backend("get_admin_checkin_data", [userId], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || "Gagal memuat data check-in.", "error");
+    return;
+  }
+
+  document.getElementById("checkin-count").textContent =
+    Number(res.checked_in || 0).toLocaleString("id-ID");
+  document.getElementById("ticket-total").textContent =
+    Number(res.total_sold || 0).toLocaleString("id-ID");
+  document.getElementById("gate-name").textContent =
+    res.gate || "CAT 1 / PINTU 02";
+  _sampleValidCode = res.sample_valid_code || "";
+  _sampleUsedCode = res.sample_used_code || "";
+
+  renderCheckinHistory(res.history || []);
+}
+
+function renderCheckinHistory(history) {
+  const el = document.getElementById("checkin-history");
+  if (!history.length) {
+    el.innerHTML =
+      '<p class="muted" style="font-size:13px">Belum ada check-in dalam simulasi ini.</p>';
+    return;
+  }
+
+  const rows = history.map((item) => {
+    const at = item.checked_in_at
+      ? new Date(item.checked_in_at).toLocaleTimeString("en-GB", {
+          timeZone: "Asia/Jakarta",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        })
+      : "Data lama";
+    return `<div class="checkin-history-row">
+      <strong>${esc(item.ticket_code)}</strong>
+      <span>${esc(item.holder_name || "-")}</span>
+      <span>${esc(item.category || "-")}</span>
+      <span class="muted">${at}${item.checked_in_at ? " WIB" : ""}</span>
+    </div>`;
+  }).join("");
+
+  el.innerHTML =
+    '<div class="checkin-history-row checkin-history-head"><strong>KODE TIKET</strong><span>NAMA PEMEGANG</span><span>KATEGORI</span><span>WAKTU</span></div>' +
+    rows;
+}
+
+function setDemoTicket(input, code, mode) {
+  input.value = code;
+  document.getElementById("ticket-hint").textContent =
+    mode === "used"
+      ? "Contoh kode yang sudah digunakan oleh simulasi."
+      : "Contoh kode tiket valid untuk diuji.";
+  input.focus();
+}
+
+function showCheckinResult(valid, message, ticket) {
+  const el = document.getElementById("checkin-result");
+  el.hidden = false;
+  el.className = `checkin-result ${valid ? "valid" : "invalid"}`;
+  el.innerHTML = valid
+    ? `<strong>TIKET VALID. Pengunjung boleh masuk.</strong><br>
+       Kode: ${esc(ticket.ticket_code)}<br>
+       Pemegang: ${esc(ticket.holder_name)}<br>
+       Kategori: ${esc(ticket.category)}`
+    : `<strong>${esc(message)}</strong>`;
+}
+
+async function validateCheckinTicket(userId, code) {
+  const button = document.getElementById("check-ticket-btn");
+  button.classList.add("is-loading");
+  button.disabled = true;
+
+  const res = await backend("admin_check_ticket", [userId, code], null);
+
+  button.classList.remove("is-loading");
+  button.disabled = false;
+
+  if (!res || !res.ok) {
+    showCheckinResult(false, (res && res.message) || "Tiket tidak dapat diverifikasi.");
+    toast((res && res.message) || "Gagal memvalidasi tiket.", "error");
+    return;
+  }
+
+  showCheckinResult(true, res.message, res.ticket);
+  toast(res.message || "Tiket valid.");
+  await loadCheckinData(userId);
+  stopCheckinScanner();
+}
+
+async function startCheckinScanner() {
+  if (!("BarcodeDetector" in window)) {
+    toast("Pindai QR tidak didukung browser ini. Gunakan cek kode manual.", "warn");
+    document.getElementById("scan-status").innerHTML =
+      "<strong>Scanner QR tidak tersedia.</strong><span>Gunakan input kode tiket sebagai pengganti.</span>";
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("Kamera tidak tersedia atau aplikasi perlu dibuka lewat localhost/HTTPS.", "warn");
+    return;
+  }
+
+  const wrap = document.getElementById("scanner-wrap");
+  const video = document.getElementById("scanner-video");
+  const scannerStatus = document.getElementById("scanner-status");
+  document.getElementById("scan-status").innerHTML =
+    "<strong>Meminta izin kamera.</strong><span>Izinkan kamera pada notifikasi browser.</span>";
+  try {
+    _checkinStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false,
+    });
+    video.srcObject = _checkinStream;
+    await video.play();
+    wrap.hidden = false;
+    if (scannerStatus) scannerStatus.textContent = "Kamera aktif. Arahkan QR ke bingkai merah.";
+    _checkinScanning = true;
+    document.getElementById("scan-status").innerHTML =
+      "<strong>Scanner aktif.</strong><span>Arahkan QR tiket ke bingkai merah.</span>";
+
+    const detector = new BarcodeDetector({ formats: ["qr_code"] });
+    const scan = async () => {
+      if (!_checkinScanning) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length) {
+          const value = (codes[0].rawValue || "").trim();
+          if (value) {
+            document.getElementById("ticket-code").value = value;
+            document.getElementById("top-checkin-search").value = value;
+            const admin = getAdminSession();
+            if (admin) await validateCheckinTicket(admin.user_id, value);
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn("QR scan error:", error);
+      }
+      _checkinScanTimer = requestAnimationFrame(scan);
+    };
+    scan();
+  } catch (error) {
+    console.warn("Camera error:", error);
+    wrap.hidden = true;
+
+    let message = "Akses kamera ditolak atau kamera tidak tersedia.";
+    if (error && error.name === "NotAllowedError") {
+      message = "Izin kamera ditolak. Aktifkan izin kamera pada browser lalu coba lagi.";
+    } else if (error && error.name === "NotFoundError") {
+      message = "Tidak ada kamera yang ditemukan pada perangkat ini.";
+    } else if (error && error.name === "NotReadableError") {
+      message = "Kamera sedang digunakan aplikasi lain.";
+    } else if (error && error.name === "SecurityError") {
+      message = "Kamera hanya tersedia melalui localhost atau HTTPS.";
+    }
+
+    document.getElementById("scan-status").innerHTML =
+      `<strong>Scanner tidak aktif.</strong><span>${esc(message)}</span>`;
+    toast(message, "error");
+  }
+}
+
+function stopCheckinScanner() {
+  _checkinScanning = false;
+  if (_checkinScanTimer) {
+    cancelAnimationFrame(_checkinScanTimer);
+    _checkinScanTimer = null;
+  }
+  if (_checkinStream) {
+    _checkinStream.getTracks().forEach((track) => track.stop());
+    _checkinStream = null;
+  }
+  const wrap = document.getElementById("scanner-wrap");
+  if (wrap) wrap.hidden = true;
+  const video = document.getElementById("scanner-video");
+  if (video) video.srcObject = null;
+}
+
 function openAnnouncementModal() {
   const ov = document.createElement("div");
   ov.className = "overlay";
@@ -901,6 +1144,8 @@ let _vPage = 1;
 const V_PER_PAGE = 5;
 
 function voucherStatus(v) {
+  if (Number(v.quota) > 0 && Number(v.used) >= Number(v.quota))
+    return "exhausted";
   if (!v.is_active) return "inactive";
   if (v.valid_until && new Date(v.valid_until) < new Date()) return "expired";
   return "active";
@@ -996,6 +1241,7 @@ function renderVoucherTable(admin) {
     active: '<span style="color:#22c55e">Aktif</span>',
     inactive: '<span class="muted">Nonaktif</span>',
     expired: '<span class="muted">Kedaluwarsa</span>',
+    exhausted: '<span style="color:#f5a623">Kuota habis</span>',
   };
   const btnStyle =
     "background:none;border:0;color:var(--text);font-size:12px;padding:0;text-align:left;cursor:pointer";
@@ -1004,6 +1250,10 @@ function renderVoucherTable(admin) {
     .map((v) => {
       const s = voucherStatus(v);
       const canDelete = Number(v.used) === 0 && !v.is_active;
+      const deleteReason = Number(v.used) > 0
+        ? "Voucher sudah dipakai dan tidak dapat dihapus agar riwayat pesanan tetap aman."
+        : "Nonaktifkan voucher terlebih dahulu sebelum menghapus.";
+      const canActivate = Number(v.used) < Number(v.quota) && s !== "expired";
       return `
       <tr>
         <td style="font-weight:500">${esc(v.code)}</td>
@@ -1015,9 +1265,13 @@ function renderVoucherTable(admin) {
         <td>${STATUS[s]}</td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px">
-            <button type="button" class="v-act-toggle" data-id="${esc(String(v.voucher_id))}" style="${btnStyle}">${v.is_active ? "Nonaktifkan" : "Aktifkan"}</button>
+            ${v.is_active
+              ? `<button type="button" class="v-act-toggle" data-id="${esc(String(v.voucher_id))}" style="${btnStyle}">Nonaktifkan</button>`
+              : canActivate
+                ? `<button type="button" class="v-act-toggle" data-id="${esc(String(v.voucher_id))}" style="${btnStyle}">Aktifkan</button>`
+                : `<span class="muted" title="Kuota habis atau masa berlaku sudah lewat">Aktifkan</span>`}
             <button type="button" class="v-act-edit" data-id="${esc(String(v.voucher_id))}" style="${btnStyle}">Edit</button>
-            ${canDelete ? `<button type="button" class="v-act-del" data-id="${esc(String(v.voucher_id))}" style="${btnStyle}">Hapus</button>` : ""}
+            <button type="button" class="v-act-del" data-id="${esc(String(v.voucher_id))}" style="${btnStyle};${canDelete ? "" : "opacity:0.45;cursor:not-allowed"}" ${canDelete ? "" : `disabled title="${deleteReason}"`}>Hapus</button>
           </div>
         </td>
       </tr>`;
@@ -1079,6 +1333,9 @@ function renderVoucherTable(admin) {
 }
 
 function openVoucherModal(admin, item = null) {
+  const todayWib = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Jakarta",
+  }).format(new Date());
   const isEdit = Boolean(item);
   const endVal =
     item && item.valid_until
@@ -1116,7 +1373,7 @@ function openVoucherModal(admin, item = null) {
         </div>
         <div class="field">
           <label for="v-end">Berlaku sampai</label>
-          <input class="input" id="v-end" type="date" value="${endVal}" required>
+          <input class="input" id="v-end" type="date" min="${todayWib}" value="${endVal}" required>
         </div>
       </div>
       <div class="modal-actions">
@@ -1126,6 +1383,7 @@ function openVoucherModal(admin, item = null) {
     </form>`;
 
   const kindEl = ov.querySelector("#v-kind");
+  const endEl = ov.querySelector("#v-end");
   const syncLabel = () => {
     ov.querySelector("#v-value-label").textContent =
       kindEl.value === "percent" ? "Nilai diskon (%)" : "Nilai diskon (Rp)";
@@ -1136,6 +1394,7 @@ function openVoucherModal(admin, item = null) {
   ov.querySelector("#v-code").oninput = (e) => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   };
+  endEl.min = todayWib;
   ov.querySelector("#v-cancel").onclick = () => ov.remove();
   ov.onclick = (e) => {
     if (e.target === ov) ov.remove();
@@ -1151,6 +1410,11 @@ function openVoucherModal(admin, item = null) {
       quota: ov.querySelector("#v-quota").value,
       valid_until: ov.querySelector("#v-end").value,
     };
+    if (!payload.valid_until || payload.valid_until < todayWib) {
+      toast("Tanggal masa berlaku tidak boleh sebelum hari ini.", "error");
+      endEl.focus();
+      return;
+    }
 
     const saveBtn = ov.querySelector("#v-save");
     saveBtn.classList.add("is-loading");
@@ -1177,6 +1441,8 @@ function openVoucherModal(admin, item = null) {
 
 /* ----- A5: Kelola Pesanan ----- */
 let _allOrders = [];
+let _ordPage = 1;
+const ORD_PER_PAGE = 10;
 
 async function initAdminOrders() {
   const admin = getAdminSession();
@@ -1199,7 +1465,10 @@ async function initAdminOrders() {
     catSel.appendChild(opt);
   });
 
-  const applyFilter = () => renderOrdersTable();
+  const applyFilter = () => {
+    _ordPage = 1;
+    renderOrdersTable();
+  };
   document.getElementById('ord-q').addEventListener('input', applyFilter);
   document.getElementById('top-search-ord').addEventListener('input', (e) => {
     document.getElementById('ord-q').value = e.target.value;
@@ -1216,6 +1485,17 @@ async function initAdminOrders() {
     document.getElementById('ord-range').value = 'all';
     document.getElementById('ord-cat').value = '';
     applyFilter();
+  };
+
+  document.getElementById('ord-prev').onclick = () => {
+    if (_ordPage > 1) {
+      _ordPage--;
+      renderOrdersTable();
+    }
+  };
+  document.getElementById('ord-next').onclick = () => {
+    _ordPage++;
+    renderOrdersTable();
   };
 
   document.getElementById('btn-export-csv').onclick = () => exportOrdersCsv(getFilteredOrders());
@@ -1244,10 +1524,29 @@ function getFilteredOrders() {
 
 function renderOrdersTable() {
   const list = getFilteredOrders();
-  const tbody = document.getElementById('ord-table-body');
-  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman 1 dari 1`;
+  const pages = Math.max(1, Math.ceil(list.length / ORD_PER_PAGE));
+  _ordPage = Math.min(Math.max(1, _ordPage), pages);
+  const slice = list.slice((_ordPage - 1) * ORD_PER_PAGE, _ordPage * ORD_PER_PAGE);
 
-  if (!list.length) {
+  const tbody = document.getElementById('ord-table-body');
+  document.getElementById('ord-count-info').textContent = `Menampilkan ${list.length} data · Halaman ${_ordPage} dari ${pages}`;
+
+  const pageNoEl = document.getElementById('ord-page-no');
+  const prevBtn = document.getElementById('ord-prev');
+  const nextBtn = document.getElementById('ord-next');
+  if (pageNoEl) pageNoEl.textContent = _ordPage;
+  if (prevBtn) {
+    prevBtn.disabled = _ordPage <= 1;
+    prevBtn.style.opacity = _ordPage <= 1 ? '0.4' : '1';
+    prevBtn.style.cursor = _ordPage <= 1 ? 'not-allowed' : 'pointer';
+  }
+  if (nextBtn) {
+    nextBtn.disabled = _ordPage >= pages;
+    nextBtn.style.opacity = _ordPage >= pages ? '0.4' : '1';
+    nextBtn.style.cursor = _ordPage >= pages ? 'not-allowed' : 'pointer';
+  }
+
+  if (!slice.length) {
     tbody.innerHTML = `<tr><td colspan="6" class="muted">Tidak ada pesanan yang cocok dengan filter.</td></tr>`;
     return;
   }
@@ -1262,7 +1561,7 @@ function renderOrdersTable() {
     return map[s] || esc(s);
   };
 
-  tbody.innerHTML = list.map(o => `
+  tbody.innerHTML = slice.map(o => `
     <tr>
       <td style="font-weight:500">${esc(o.order_code)}</td>
       <td>${esc(o.buyer_name)}</td>
@@ -1427,6 +1726,8 @@ async function initAdminOrderDetail() {
 
 /* ----- A7: Pembayaran & Verifikasi ----- */
 let _allPayments = [];
+let _payPage = 1;
+const PAY_PER_PAGE = 10;
 
 async function initAdminPayments() {
   const admin = getAdminSession();
@@ -1434,13 +1735,29 @@ async function initAdminPayments() {
 
   renderAdminLayout('pembayaran');
 
-  document.getElementById('pay-q').addEventListener('input', renderPaymentsTable);
+  const applyPayFilter = () => {
+    _payPage = 1;
+    renderPaymentsTable();
+  };
+
+  document.getElementById('pay-q').addEventListener('input', applyPayFilter);
   document.getElementById('top-search-pay').addEventListener('input', (e) => {
     document.getElementById('pay-q').value = e.target.value;
-    renderPaymentsTable();
+    applyPayFilter();
   });
-  document.getElementById('pay-status').addEventListener('change', renderPaymentsTable);
-  document.getElementById('pay-method').addEventListener('change', renderPaymentsTable);
+  document.getElementById('pay-status').addEventListener('change', applyPayFilter);
+  document.getElementById('pay-method').addEventListener('change', applyPayFilter);
+
+  document.getElementById('pay-prev').onclick = () => {
+    if (_payPage > 1) {
+      _payPage--;
+      renderPaymentsTable();
+    }
+  };
+  document.getElementById('pay-next').onclick = () => {
+    _payPage++;
+    renderPaymentsTable();
+  };
 
   await loadAdminPayments(admin);
 }
@@ -1482,10 +1799,29 @@ function renderPaymentsTable() {
     return true;
   });
 
-  const tbody = document.getElementById('pay-table-body');
-  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman 1 dari 1`;
+  const pages = Math.max(1, Math.ceil(filtered.length / PAY_PER_PAGE));
+  _payPage = Math.min(Math.max(1, _payPage), pages);
+  const slice = filtered.slice((_payPage - 1) * PAY_PER_PAGE, _payPage * PAY_PER_PAGE);
 
-  if (!filtered.length) {
+  const tbody = document.getElementById('pay-table-body');
+  document.getElementById('pay-count-info').textContent = `Menampilkan ${filtered.length} data · Halaman ${_payPage} dari ${pages}`;
+
+  const pageNoEl = document.getElementById('pay-page-no');
+  const prevBtn = document.getElementById('pay-prev');
+  const nextBtn = document.getElementById('pay-next');
+  if (pageNoEl) pageNoEl.textContent = _payPage;
+  if (prevBtn) {
+    prevBtn.disabled = _payPage <= 1;
+    prevBtn.style.opacity = _payPage <= 1 ? '0.4' : '1';
+    prevBtn.style.cursor = _payPage <= 1 ? 'not-allowed' : 'pointer';
+  }
+  if (nextBtn) {
+    nextBtn.disabled = _payPage >= pages;
+    nextBtn.style.opacity = _payPage >= pages ? '0.4' : '1';
+    nextBtn.style.cursor = _payPage >= pages ? 'not-allowed' : 'pointer';
+  }
+
+  if (!slice.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="muted">Tidak ada transaksi pembayaran yang cocok.</td></tr>`;
     return;
   }
@@ -1504,14 +1840,14 @@ function renderPaymentsTable() {
     return `<span style="color:#f59e0b">${esc(s)}</span>`;
   };
 
-  tbody.innerHTML = filtered.map(p => {
+  tbody.innerHTML = slice.map(p => {
     const isPending = p.status === 'pending';
     const actionEl = isPending
-      ? `<button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>`
-      : `<div style="display:flex;gap:12px;align-items:center">
-           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>
-           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text-2);font-size:12px;padding:0;cursor:pointer">Verifikasi</button>
-         </div>`;
+      ? `<div style="display:flex;gap:12px;align-items:center">
+           <a href="order-detail.html?id=${p.order_id}" style="color:var(--text-2);font-size:13px">Detail</a>
+           <button type="button" class="pay-act-verify" data-id="${p.payment_id}" style="background:none;border:0;color:var(--text);font-size:13px;padding:0;cursor:pointer;font-weight:500">Verifikasi</button>
+         </div>`
+      : `<a href="order-detail.html?id=${p.order_id}" style="color:var(--text);font-size:13px">Detail</a>`;
 
     return `
       <tr>

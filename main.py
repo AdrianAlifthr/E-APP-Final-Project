@@ -4,7 +4,12 @@ Semua data konser, tiket, pesanan, pembayaran, e-ticket, dan berita dibaca/disim
 import re
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import os
+import smtplib
+from email.message import EmailMessage
+from dotenv import load_dotenv
+load_dotenv()
 
 import eel
 from database import supabase
@@ -320,12 +325,26 @@ def pay_order(order_id, user_id, card=None):
             if number.endswith("0002"):
                 supabase.table("payments").update({"status": "failed"}).eq("order_id", str(order_id)).execute()
                 return {"ok": False, "message": "Kartu ditolak oleh bank penerbit."}
-        supabase.rpc("complete_ticket_payment", {"p_order_id": str(order_id), "p_user_id": str(user_id)}).execute()
-        return {"ok": True, "order": _fetch_order(order_id, user_id)}
+
+        # Perpanjang expires_at jauh ke depan agar tidak auto-expired saat menunggu verifikasi admin
+        supabase.table("orders").update({
+            "expires_at": "2027-08-14T23:59:59+07:00"
+        }).eq("order_id", str(order_id)).execute()
+
+        # Pastikan payment tercatat dengan status pending verifikasi
+        supabase.table("payments").update({
+            "status": "pending"
+        }).eq("order_id", str(order_id)).execute()
+
+        return {
+            "ok": True,
+            "awaiting_verification": True,
+            "order": _fetch_order(order_id, user_id),
+            "message": "Pembayaran diterima. Menunggu verifikasi panitia sebelum e-ticket diterbitkan."
+        }
     except Exception as exc:
         msg = str(exc)
         return {"ok": False, "expired": "expired" in msg.lower(), "message": msg}
-
 
 @eel.expose
 def cancel_order(order_id, user_id):
@@ -457,6 +476,58 @@ def change_password(user_id, old_password, new_password):
         return {"ok": True}
     except Exception:
         return {"ok": False, "field": "old", "message": "Password lama salah atau password gagal diperbarui."}
+
+def _send_eticket_email(to_email, buyer_name, order_code, tickets):
+    smtp_user = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_pass = os.getenv("SMTP_APP_PASSWORD", "").replace(" ", "").strip()
+    if not smtp_user or not smtp_pass or not to_email:
+        print("[EMAIL] Konfigurasi SMTP_EMAIL / SMTP_APP_PASSWORD belum diisi di .env")
+        return False, "Konfigurasi SMTP belum diatur di .env"
+
+    ticket_rows = ""
+    for t in tickets:
+        cat_name = (t.get("ticket_categories") or {}).get("name") or "Tiket"
+        ticket_rows += f"""
+        <tr>
+          <td style="padding:10px;border-bottom:1px solid #262626;font-weight:bold;color:#fff">{t.get('ticket_code')}</td>
+          <td style="padding:10px;border-bottom:1px solid #262626;color:#ddd">{t.get('holder_name')}</td>
+          <td style="padding:10px;border-bottom:1px solid #262626;color:#aaa">{cat_name}</td>
+        </tr>"""
+
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;background:#0d0d0d;color:#f5f5f5;padding:28px;border-radius:12px;max-width:600px;margin:auto">
+      <p style="color:#c8102e;font-size:12px;letter-spacing:2px;margin:0">THE WEEKND · AFTER HOURS TIL DAWN</p>
+      <h2 style="margin:8px 0 16px;font-size:24px">E-TICKET KAMU SUDAH TERBIT!</h2>
+      <p style="color:#ccc;font-size:14px">Halo <strong>{buyer_name}</strong>, pembayaran untuk pesanan <strong>{order_code}</strong> telah diverifikasi oleh panitia.</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;background:#161616;border-radius:8px;overflow:hidden;font-size:13px">
+        <thead>
+          <tr style="background:#1f1f1f;color:#888;text-align:left">
+            <th style="padding:10px">KODE TIKET</th>
+            <th style="padding:10px">PEMEGANG</th>
+            <th style="padding:10px">KATEGORI</th>
+          </tr>
+        </thead>
+        <tbody>{ticket_rows}</tbody>
+      </table>
+      <p style="color:#999;font-size:12px">Simpan kode tiket di atas atau buka menu <strong>Pesanan Saya</strong> di aplikasi untuk menampilkan QR Code saat check-in di GBK, Jakarta (14 Agustus 2027).</p>
+    </div>
+    """
+
+    msg = EmailMessage()
+    msg["Subject"] = f"E-Ticket Resmi · {order_code} (The Weeknd Jakarta 2027)"
+    msg["From"] = f"Panitia The Weeknd Jakarta <{smtp_user}>"
+    msg["To"] = to_email
+    msg.set_content(f"Halo {buyer_name}, pembayaran {order_code} telah diverifikasi. Kode tiket: " + ", ".join(t.get("ticket_code", "") for t in tickets))
+    msg.add_alternative(html_body, subtype="html")
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        return True, "Email e-ticket terkirim"
+    except Exception as exc:
+        print("[EMAIL ERROR]", repr(exc))
+        return False, str(exc)
 
 # ---------------- ADMIN PANEL (A1 & A2) ----------------
 def _require_admin(user_id):
@@ -1005,6 +1076,13 @@ def save_voucher(user_id, data):
         return {"ok": False, "field": "quota", "message": "Kuota minimal 1."}
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
         return {"ok": False, "field": "valid_until", "message": "Tanggal berlaku sampai wajib diisi."}
+    try:
+        valid_until_date = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        return {"ok": False, "field": "valid_until", "message": "Tanggal masa berlaku tidak valid."}
+    today_wib = datetime.now(timezone(timedelta(hours=7))).date()
+    if valid_until_date < today_wib:
+        return {"ok": False, "field": "valid_until", "message": "Tanggal masa berlaku tidak boleh sebelum hari ini."}
 
     try:
         dup = supabase.table("vouchers").select(VCOL["id"]).eq(VCOL["code"], code).execute().data or []
@@ -1040,6 +1118,23 @@ def toggle_voucher(user_id, voucher_id, active):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}
     try:
+        if active:
+            rows = (
+                supabase.table("vouchers")
+                .select(f"{VCOL['quota']},{VCOL['end']}")
+                .eq(VCOL["id"], voucher_id)
+                .limit(1)
+                .execute()
+                .data or []
+            )
+            if not rows:
+                return {"ok": False, "message": "Voucher tidak ditemukan."}
+            used, _ = _voucher_usage()
+            quota = int(rows[0].get(VCOL["quota"]) or 0)
+            if used.get(voucher_id, 0) >= quota:
+                return {"ok": False, "message": "Kuota voucher sudah habis dan tidak bisa diaktifkan."}
+            if rows[0].get(VCOL["end"]) and _to_ms(rows[0][VCOL["end"]]) < _now_ms():
+                return {"ok": False, "message": "Voucher sudah kedaluwarsa dan tidak bisa diaktifkan."}
         supabase.table("vouchers").update({VCOL["active"]: bool(active)}).eq(VCOL["id"], voucher_id).execute()
         action = "Mengaktifkan voucher" if active else "Menonaktifkan voucher"
         warning = _record_admin_activity(user_id, action, str(voucher_id))
@@ -1053,6 +1148,18 @@ def delete_voucher(user_id, voucher_id):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}
     try:
+        rows = (
+            supabase.table("vouchers")
+            .select(f"{VCOL['active']}")
+            .eq(VCOL["id"], voucher_id)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not rows:
+            return {"ok": False, "message": "Voucher tidak ditemukan."}
+        if rows[0].get(VCOL["active"], True):
+            return {"ok": False, "message": "Nonaktifkan voucher terlebih dahulu sebelum menghapus."}
         used, _ = _voucher_usage()
         if used.get(voucher_id, 0) > 0:
             return {"ok": False, "message": "Voucher yang sudah dipakai tidak bisa dihapus. Nonaktifkan saja."}
@@ -1282,29 +1389,59 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
         now_iso = datetime.now(timezone.utc).isoformat()
 
         if decision == "approve":
-            supabase.table("payments").update({
-                "status": "success",
-                "paid_at": now_iso,
-            }).eq("payment_id", payment_id).execute()
-
+            email_status_msg = ""
             if order_id:
-                supabase.table("orders").update({"status": "paid"}).eq("order_id", order_id).execute()
-                t_list = supabase.table("tickets").select("ticket_id,ticket_code").eq("order_id", order_id).execute().data or []
-                for idx, t in enumerate(t_list, start=1):
-                    code = t.get("ticket_code")
-                    if not code or "PENDING" in str(code).upper():
-                        code = f"TW-C1-{str(order_id)[:4].upper()}{idx:02d}"
-                    supabase.table("tickets").update({
-                        "ticket_code": code,
-                        "status": "valid"
-                    }).eq("ticket_id", t["ticket_id"]).execute()
+                ord_res = (
+                    supabase.table("orders")
+                    .select("order_id,order_code,user_id,users!user_id(full_name,email)")
+                    .eq("order_id", str(order_id))
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+                if not ord_res:
+                    return {"ok": False, "message": "Data pesanan tidak ditemukan."}
+
+                ord_data = ord_res[0]
+                buyer_user_id = str(ord_data["user_id"])
+                order_code = ord_data.get("order_code") or ref_code
+                u_info = ord_data.get("users") or {}
+
+                try:
+                    supabase.rpc("admin_complete_ticket_payment", {
+                        "p_order_id": str(order_id),
+                        "p_user_id": buyer_user_id
+                    }).execute()
+                except Exception as rpc_exc:
+                    print("[RPC admin_complete_ticket_payment]", repr(rpc_exc))
+                    return _err(rpc_exc, "Gagal menerbitkan e-ticket di database")
+
+                supabase.table("payments").update({
+                    "status": "success",
+                    "paid_at": now_iso,
+                }).eq("payment_id", payment_id).execute()
+
+                t_list = (
+                    supabase.table("tickets")
+                    .select("ticket_id,ticket_code,holder_name,category_id,ticket_categories(name)")
+                    .eq("order_id", str(order_id))
+                    .execute()
+                    .data or []
+                )
+
+                sent_ok, sent_info = _send_eticket_email(
+                    u_info.get("email"),
+                    u_info.get("full_name") or "Pengunjung",
+                    order_code,
+                    t_list
+                )
+                email_status_msg = " E-ticket dikirim ke Gmail pembeli." if sent_ok else f" (Email gagal: {sent_info})"
 
             warning = _record_admin_activity(user_id, "Memverifikasi pembayaran", ref_code)
             return {
                 "ok": True,
                 "type": "success",
-                "message": f"{ref_code} disetujui. Pesanan menjadi Paid dan tiket diterbitkan.",
-                "warning": warning,
+                "message": f"{ref_code} disetujui. Pesanan menjadi Paid dan tiket diterbitkan.{email_status_msg}"
             }
         else:
             supabase.table("payments").update({
@@ -1312,12 +1449,11 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
             }).eq("payment_id", payment_id).execute()
 
             if order_id:
-                supabase.table("orders").update({"status": "cancelled"}).eq("order_id", order_id).execute()
-                supabase.table("tickets").update({"status": "cancelled"}).eq("order_id", order_id).execute()
+                supabase.table("orders").update({"status": "cancelled"}).eq("order_id", str(order_id)).execute()
+                supabase.table("tickets").update({"status": "cancelled"}).eq("order_id", str(order_id)).execute()
 
-                # Kembalikan kuota kategori jika pesanan sebelumnya aktif (pending / paid)
                 if old_order_status in ("pending", "paid"):
-                    items = supabase.table("order_items").select("category_id,quantity").eq("order_id", order_id).execute().data or []
+                    items = supabase.table("order_items").select("category_id,quantity").eq("order_id", str(order_id)).execute().data or []
                     for it in items:
                         cid = it["category_id"]
                         qty = int(it.get("quantity") or 0)
@@ -1335,6 +1471,240 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
             }
     except Exception as exc:
         return _err(exc, "Gagal memproses verifikasi pembayaran")
+
+
+# ---------------- ADMIN CHECK-IN ----------------
+
+def _normalize_ticket_code(ticket_code):
+    return re.sub(r"[^A-Z0-9]", "", str(ticket_code or "").upper())
+
+@eel.expose
+def get_admin_checkin_data(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+
+    try:
+        ticket_categories = (
+            supabase.table("ticket_categories")
+            .select("sold")
+            .execute()
+            .data or []
+        )
+        total_ticket_sales = sum(
+            int(category.get("sold") or 0)
+            for category in ticket_categories
+        )
+
+        paid_orders = (
+            supabase.table("orders")
+            .select("order_id")
+            .eq("status", "paid")
+            .execute()
+            .data or []
+        )
+        paid_order_ids = [str(o["order_id"]) for o in paid_orders]
+
+        tickets = []
+        if paid_order_ids:
+            tickets = (
+                supabase.table("tickets")
+                .select("ticket_id,ticket_code,holder_name,category_id,status,order_id")
+                .in_("order_id", paid_order_ids)
+                .execute()
+                .data or []
+            )
+
+        checkin_by_ticket = {}
+        ticket_ids = [str(ticket["ticket_id"]) for ticket in tickets]
+        if ticket_ids:
+            checkin_rows = (
+                supabase.table("checkins")
+                .select("ticket_id,checkin_time")
+                .in_("ticket_id", ticket_ids)
+                .order("checkin_time", desc=True)
+                .execute()
+                .data or []
+            )
+            checkin_by_ticket = {
+                str(row["ticket_id"]): row.get("checkin_time")
+                for row in checkin_rows
+            }
+
+        checked_in = [t for t in tickets if t["status"] == "used"]
+        sample_valid_code = next(
+            (str(t["ticket_code"]).strip().upper()
+             for t in tickets
+             if t["status"] == "valid" and t.get("ticket_code")),
+            ""
+        )
+        sample_used_code = next(
+            (str(t["ticket_code"]).strip().upper()
+             for t in checked_in
+             if t.get("ticket_code")),
+            ""
+        )
+        valid_ticket_list = [
+            {
+                "ticket_code": str(t["ticket_code"]).strip().upper(),
+                "holder_name": t.get("holder_name") or "-",
+                "status": t["status"]
+            }
+            for t in tickets
+            if t.get("ticket_code") and t["status"] in ("valid", "used")
+        ]
+
+        history = []
+        for ticket in checked_in:
+            category = (
+                supabase.table("ticket_categories")
+                .select("name")
+                .eq("category_id", ticket["category_id"])
+                .limit(1)
+                .execute().data or []
+            )
+
+            history.append({
+                "ticket_code": ticket["ticket_code"],
+                "holder_name": ticket["holder_name"],
+                "category": category[0]["name"] if category else "-",
+                "checked_in_at": checkin_by_ticket.get(str(ticket["ticket_id"]))
+            })
+
+        history.sort(
+            key=lambda item: item["checked_in_at"] or "",
+            reverse=True
+        )
+
+        return {
+            "ok": True,
+            "total_sold": total_ticket_sales,
+            "checked_in": len(checked_in),
+            "gate": "CAT 1 / PINTU 02",
+            "history": history[:10],
+            "tickets": valid_ticket_list,
+            "sample_valid_code": sample_valid_code,
+            "sample_used_code": sample_used_code
+        }
+
+    except Exception as exc:
+        return _err(exc, "Gagal mengambil data check-in")
+
+
+@eel.expose
+def admin_check_ticket(user_id, ticket_code):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+
+    ticket_code = (ticket_code or "").strip().upper()
+    normalized_code = _normalize_ticket_code(ticket_code)
+
+    if not normalized_code:
+        return {"ok": False, "message": "Masukkan kode tiket."}
+
+    try:
+        tickets = (
+            supabase.table("tickets")
+            .select("ticket_id,ticket_code,holder_name,category_id,status,order_id")
+            .execute()
+            .data or []
+        )
+        rows = [
+            t for t in tickets
+            if _normalize_ticket_code(t.get("ticket_code")) == normalized_code
+        ]
+
+        if not rows:
+            return {"ok": False, "message": "Tiket tidak ditemukan."}
+
+        ticket = rows[0]
+
+        if ticket["status"] == "used":
+            return {
+                "ok": False,
+                "status": "used",
+                "message": "Tiket sudah pernah digunakan."
+            }
+
+        if ticket["status"] != "valid":
+            return {
+                "ok": False,
+                "status": ticket["status"],
+                "message": "Tiket tidak valid atau belum aktif."
+            }
+
+        # Pastikan pesanan sudah dibayar
+        order = (
+            supabase.table("orders")
+            .select("status")
+            .eq("order_id", ticket["order_id"])
+            .limit(1)
+            .execute()
+            .data or []
+        )
+
+        if not order or order[0]["status"] != "paid":
+            return {
+                "ok": False,
+                "message": "Pembayaran tiket belum terverifikasi."
+            }
+
+        checkin_time = datetime.now(timezone.utc).isoformat()
+        result = (
+            supabase.table("tickets")
+            .update({
+                "status": "used"
+            })
+            .eq("ticket_id", ticket["ticket_id"])
+            .eq("status", "valid")
+            .execute()
+        )
+
+        if not result.data:
+            return {
+                "ok": False,
+                "message": "Tiket sudah diproses petugas lain."
+            }
+
+        try:
+            supabase.table("checkins").insert({
+                "ticket_id": ticket["ticket_id"],
+                "checked_by": str(user_id),
+                "checkin_time": checkin_time
+            }).execute()
+        except Exception:
+            rollback = (
+                supabase.table("tickets")
+                .update({"status": "valid"})
+                .eq("ticket_id", ticket["ticket_id"])
+                .eq("status", "used")
+                .execute()
+            )
+            if not rollback.data:
+                print("[CHECK-IN] Gagal mengembalikan status tiket setelah insert checkins gagal.")
+            raise
+
+        category = (
+            supabase.table("ticket_categories")
+            .select("name")
+            .eq("category_id", ticket["category_id"])
+            .limit(1)
+            .execute()
+            .data or []
+        )
+
+        return {
+            "ok": True,
+            "status": "valid",
+            "message": "TIKET VALID. Pengunjung boleh masuk.",
+            "ticket": {
+                "ticket_code": ticket["ticket_code"],
+                "holder_name": ticket["holder_name"],
+                "category": category[0]["name"] if category else "-"
+            }
+        }
+
+    except Exception as exc:
+        return _err(exc, "Gagal memvalidasi tiket")
 
 if __name__ == "__main__":
     eel.start("index.html", size=(1440, 900))
