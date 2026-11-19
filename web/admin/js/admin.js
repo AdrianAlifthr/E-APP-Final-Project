@@ -19,9 +19,9 @@ function renderAdminLayout(activeMenu) {
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', href: 'voucher.html' },
     { id: 'checkin', label: '— Check-in', locked: true },
-    { id: 'laporan', label: '— Laporan', locked: true },
-    { id: 'pengguna', label: '— Pengguna', locked: true },
-    { id: 'log', label: '— Log Aktivitas', locked: true }
+    { id: 'laporan', label: '— Laporan', href: 'reports.html' },
+    { id: 'pengguna', label: '— Pengguna', href: 'users.html' },
+    { id: 'log', label: '— Log Aktivitas', href: 'activity.html' }
   ];
 
   const navHtml = menus
@@ -443,7 +443,7 @@ function openAnnouncementModal() {
     }
 
     ov.remove();
-    toast("Pengumuman berhasil disimpan!");
+    toast(res.warning || "Pengumuman berhasil disimpan!", res.warning ? "warn" : "success");
     await loadDashboardData();
   };
 
@@ -608,7 +608,7 @@ async function initAdminConcertEdit() {
       }
 
       ov.remove();
-      toast("Venue baru berhasil ditambahkan dan dipilih!");
+      toast(addRes.warning || "Venue baru berhasil ditambahkan dan dipilih!", addRes.warning ? "warn" : "success");
     };
 
     document.body.appendChild(ov);
@@ -647,7 +647,7 @@ async function initAdminConcertEdit() {
       return;
     }
 
-    toast("Informasi konser berhasil disimpan!");
+    toast(updateRes.warning || "Informasi konser berhasil disimpan!", updateRes.warning ? "warn" : "success");
     setTimeout(() => (window.location.href = "concert.html"), 1000);
   };
 }
@@ -802,7 +802,7 @@ function renderCategoryTable(admin, list, keyword = "") {
             toast((res && res.message) || "Gagal menghapus kategori.", "error");
             return;
           }
-          toast("Kategori tiket berhasil dihapus.");
+          toast(res.warning || "Kategori tiket berhasil dihapus.", res.warning ? "warn" : "success");
           await loadAdminCategories(admin);
         },
       });
@@ -887,7 +887,7 @@ function openCategoryModal(admin, item = null) {
     }
 
     ov.remove();
-    toast(res.message || "Kategori berhasil disimpan!");
+    toast(res.warning || res.message || "Kategori berhasil disimpan!", res.warning ? "warn" : "success");
     await loadAdminCategories(admin);
   };
 
@@ -1040,7 +1040,7 @@ function renderVoucherTable(admin) {
         toast((res && res.message) || "Gagal mengubah status.", "error");
         return;
       }
-      toast(res.message);
+      toast(res.warning || res.message, res.warning ? "warn" : "success");
       await loadVouchers(admin);
     };
   });
@@ -1070,7 +1070,7 @@ function renderVoucherTable(admin) {
             toast((res && res.message) || "Gagal menghapus voucher.", "error");
             return;
           }
-          toast(res.message);
+          toast(res.warning || res.message, res.warning ? "warn" : "success");
           await loadVouchers(admin);
         },
       });
@@ -1167,7 +1167,7 @@ function openVoucherModal(admin, item = null) {
     }
 
     ov.remove();
-    toast(res.message || "Voucher berhasil disimpan!");
+    toast(res.warning || res.message || "Voucher berhasil disimpan!", res.warning ? "warn" : "success");
     await loadVouchers(admin);
   };
 
@@ -1355,7 +1355,7 @@ async function initAdminOrderDetail() {
             toast((upRes && upRes.message) || 'Gagal mengubah status.', 'error');
             return;
           }
-          toast(upRes.message);
+          toast(upRes.warning || upRes.message, upRes.warning ? "warn" : "success");
           await loadDetail();
         }
       });
@@ -1608,7 +1608,7 @@ function openVerifyPaymentModal(admin, pay) {
     const banner = document.getElementById('pay-feedback-banner');
     if (banner) {
       banner.hidden = false;
-      banner.textContent = res.message;
+      banner.textContent = [res.message, res.warning].filter(Boolean).join(" ");
       if (res.type === 'error') {
         banner.style.color = '#ef4444';
         banner.style.borderColor = 'rgba(239, 68, 68, 0.35)';
@@ -1618,7 +1618,7 @@ function openVerifyPaymentModal(admin, pay) {
       }
     }
 
-    toast(res.message, res.type === 'error' ? 'error' : 'success');
+    toast(res.warning || res.message, res.warning ? 'warn' : res.type === 'error' ? 'error' : 'success');
     await loadAdminPayments(admin);
   };
 
