@@ -16,3 +16,4 @@ Butuh Python 3.10+ dan Google Chrome.
 - Kartu uji: nomor berakhiran 0002 ditolak, lainnya berhasil
 
 Data masih disimpan di memori (hilang saat aplikasi ditutup).
+
