@@ -1,2 +1,4 @@
 eel
 segno
+python-dotenv
+supabase

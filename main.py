@@ -537,6 +537,117 @@ def _require_admin(user_id):
     return user
 
 
+def _record_admin_activity(user_id, action, object_label):
+    user = _user_by_id(user_id) or {}
+    try:
+        supabase.table("activity_logs").insert({
+            "admin_id": str(user_id),
+            "admin_name": user.get("full_name") or "Admin",
+            "action": action,
+            "object_label": object_label,
+        }).execute()
+        return ""
+    except Exception as exc:
+        print("[ADMIN ACTIVITY LOG]", repr(exc))
+        return "Log aktivitas gagal disimpan. Jalankan migrasi activity_logs."
+
+
+@eel.expose
+def get_admin_sales_report(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        orders = (
+            supabase.table("orders")
+            .select("order_id,order_code,subtotal,discount,total_amount,status,created_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data or []
+        )
+        items = (
+            supabase.table("order_items")
+            .select("order_id,category_id,quantity,unit_price,subtotal,ticket_categories(name)")
+            .execute()
+            .data or []
+        )
+        categories = get_ticket_categories()
+        return {"ok": True, "orders": orders, "items": items, "categories": categories}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat laporan penjualan")
+
+
+@eel.expose
+def get_admin_users(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        users = (
+            supabase.table("users")
+            .select("user_id,full_name,email,phone,role,is_active,created_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data or []
+        )
+        orders = supabase.table("orders").select("user_id").execute().data or []
+        order_counts = {}
+        for order in orders:
+            uid = str(order.get("user_id") or "")
+            order_counts[uid] = order_counts.get(uid, 0) + 1
+        return {
+            "ok": True,
+            "users": [{
+                **user,
+                "order_count": order_counts.get(str(user.get("user_id")), 0),
+            } for user in users],
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal memuat data pengguna")
+
+
+@eel.expose
+def admin_set_user_active(admin_id, target_user_id, active):
+    if not _require_admin(admin_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    if not isinstance(active, bool):
+        return {"ok": False, "message": "Status akun tidak valid."}
+    if str(admin_id) == str(target_user_id) and not active:
+        return {"ok": False, "message": "Kamu tidak dapat menonaktifkan akun sendiri."}
+    try:
+        target = _user_by_id(target_user_id)
+        if not target:
+            return {"ok": False, "message": "Pengguna tidak ditemukan."}
+        supabase.table("users").update({"is_active": active}).eq("user_id", str(target_user_id)).execute()
+        status = "mengaktifkan" if active else "menonaktifkan"
+        warning = _record_admin_activity(
+            admin_id, f"{status.capitalize()} akun pengguna", target.get("email") or str(target_user_id)
+        )
+        return {
+            "ok": True,
+            "message": f"Akun berhasil {'diaktifkan' if active else 'dinonaktifkan'}.",
+            "warning": warning,
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal mengubah status pengguna")
+
+
+@eel.expose
+def get_admin_activity_logs(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        logs = (
+            supabase.table("activity_logs")
+            .select("log_id,admin_id,admin_name,action,object_label,created_at")
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+            .data or []
+        )
+        return {"ok": True, "logs": logs}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat log aktivitas")
+
+
 def _format_idr_short(amount):
     val = float(amount or 0)
     if val >= 1_000_000_000:
@@ -690,7 +801,13 @@ def create_announcement(user_id, title, content, is_published=True):
             "published_at": now_iso if is_published else None,
         }
         res = supabase.table("announcements").insert(payload).execute()
-        return {"ok": True, "item": res.data[0] if res.data else payload}
+        action = "Menerbitkan pengumuman" if is_published else "Menyimpan draf pengumuman"
+        warning = _record_admin_activity(user_id, action, title)
+        return {
+            "ok": True,
+            "item": res.data[0] if res.data else payload,
+            "warning": warning,
+        }
     except Exception as exc:
         return _err(exc, "Gagal menyimpan pengumuman")
 
@@ -734,7 +851,8 @@ def update_concert_info(user_id, data):
         }
         
         supabase.table("concerts").update(payload).eq("concert_id", concert_id).execute()
-        return {"ok": True, "message": "Informasi konser berhasil diperbarui."}
+        warning = _record_admin_activity(user_id, "Memperbarui informasi konser", payload["title"])
+        return {"ok": True, "message": "Informasi konser berhasil diperbarui.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal memperbarui informasi konser")
 
@@ -756,7 +874,12 @@ def create_venue(user_id, data):
             "capacity": int(data.get("capacity") or 15000)
         }
         res = supabase.table("venues").insert(payload).execute()
-        return {"ok": True, "venue": res.data[0] if res.data else payload}
+        warning = _record_admin_activity(user_id, "Menambahkan venue", name)
+        return {
+            "ok": True,
+            "venue": res.data[0] if res.data else payload,
+            "warning": warning,
+        }
     except Exception as exc:
         return _err(exc, "Gagal menambahkan venue baru")
 
@@ -807,7 +930,8 @@ def save_ticket_category(user_id, data):
                 "sale_end": sale_end,
             }
             supabase.table("ticket_categories").update(payload).eq("category_id", cat_id).execute()
-            return {"ok": True, "message": "Kategori tiket berhasil diperbarui."}
+            warning = _record_admin_activity(user_id, "Memperbarui kategori tiket", name)
+            return {"ok": True, "message": "Kategori tiket berhasil diperbarui.", "warning": warning}
         else:
             concert = supabase.table("concerts").select("concert_id").order("concert_date").limit(1).execute().data
             concert_id = concert[0]["concert_id"] if concert else 1
@@ -822,7 +946,8 @@ def save_ticket_category(user_id, data):
                 "sale_end": sale_end,
             }
             supabase.table("ticket_categories").insert(payload).execute()
-            return {"ok": True, "message": "Kategori tiket baru berhasil ditambahkan."}
+            warning = _record_admin_activity(user_id, "Menambahkan kategori tiket", name)
+            return {"ok": True, "message": "Kategori tiket baru berhasil ditambahkan.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal menyimpan kategori tiket")
 
@@ -840,7 +965,8 @@ def delete_ticket_category(user_id, category_id):
             return {"ok": False, "message": "Kategori dengan penjualan tidak dapat dihapus."}
 
         supabase.table("ticket_categories").delete().eq("category_id", category_id).execute()
-        return {"ok": True, "message": "Kategori tiket berhasil dihapus."}
+        warning = _record_admin_activity(user_id, "Menghapus kategori tiket", existing[0].get("name") or str(category_id))
+        return {"ok": True, "message": "Kategori tiket berhasil dihapus.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal menghapus kategori tiket")
 
@@ -976,11 +1102,13 @@ def save_voucher(user_id, data):
                 return {"ok": False, "field": "quota",
                         "message": f"Kuota tidak boleh lebih kecil dari yang terpakai ({used.get(vid, 0)})."}
             supabase.table("vouchers").update(payload).eq(VCOL["id"], vid).execute()
-            return {"ok": True, "message": "Voucher diperbarui."}
+            warning = _record_admin_activity(user_id, "Memperbarui voucher", code)
+            return {"ok": True, "message": "Voucher diperbarui.", "warning": warning}
 
         payload[VCOL["active"]] = True
         supabase.table("vouchers").insert(payload).execute()
-        return {"ok": True, "message": "Voucher ditambahkan."}
+        warning = _record_admin_activity(user_id, "Menambahkan voucher", code)
+        return {"ok": True, "message": "Voucher ditambahkan.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal menyimpan voucher")
 
@@ -1008,7 +1136,9 @@ def toggle_voucher(user_id, voucher_id, active):
             if rows[0].get(VCOL["end"]) and _to_ms(rows[0][VCOL["end"]]) < _now_ms():
                 return {"ok": False, "message": "Voucher sudah kedaluwarsa dan tidak bisa diaktifkan."}
         supabase.table("vouchers").update({VCOL["active"]: bool(active)}).eq(VCOL["id"], voucher_id).execute()
-        return {"ok": True, "message": "Voucher diaktifkan." if active else "Voucher dinonaktifkan."}
+        action = "Mengaktifkan voucher" if active else "Menonaktifkan voucher"
+        warning = _record_admin_activity(user_id, action, str(voucher_id))
+        return {"ok": True, "message": "Voucher diaktifkan." if active else "Voucher dinonaktifkan.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal mengubah status voucher")
 
@@ -1034,7 +1164,8 @@ def delete_voucher(user_id, voucher_id):
         if used.get(voucher_id, 0) > 0:
             return {"ok": False, "message": "Voucher yang sudah dipakai tidak bisa dihapus. Nonaktifkan saja."}
         supabase.table("vouchers").delete().eq(VCOL["id"], voucher_id).execute()
-        return {"ok": True, "message": "Voucher dihapus."}
+        warning = _record_admin_activity(user_id, "Menghapus voucher", str(voucher_id))
+        return {"ok": True, "message": "Voucher dihapus.", "warning": warning}
     except Exception as exc:
         return _err(exc, "Gagal menghapus voucher")
 @eel.expose
@@ -1180,7 +1311,13 @@ def admin_update_order_status(user_id, order_id, new_status):
                     new_sold = max(0, int(cat[0].get("sold") or 0) - qty)
                     supabase.table("ticket_categories").update({"sold": new_sold}).eq("category_id", cid).execute()
 
-        return {"ok": True, "message": f"Status pesanan berhasil diubah menjadi {new_status}."}
+        action = f"Mengubah status pesanan menjadi {new_status}"
+        warning = _record_admin_activity(user_id, action, order.get("order_code") or str(order_id))
+        return {
+            "ok": True,
+            "message": f"Status pesanan berhasil diubah menjadi {new_status}.",
+            "warning": warning,
+        }
     except Exception as exc:
         return _err(exc, "Gagal memperbarui status pesanan")
 
@@ -1300,6 +1437,7 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
                 )
                 email_status_msg = " E-ticket dikirim ke Gmail pembeli." if sent_ok else f" (Email gagal: {sent_info})"
 
+            warning = _record_admin_activity(user_id, "Memverifikasi pembayaran", ref_code)
             return {
                 "ok": True,
                 "type": "success",
@@ -1324,10 +1462,12 @@ def admin_verify_payment(user_id, payment_id, decision, reason=""):
                             new_sold = max(0, int(cat[0].get("sold") or 0) - qty)
                             supabase.table("ticket_categories").update({"sold": new_sold}).eq("category_id", cid).execute()
 
+            warning = _record_admin_activity(user_id, "Menolak pembayaran", ref_code)
             return {
                 "ok": True,
                 "type": "error",
-                "message": f"{ref_code} ditolak: {reason}."
+                "message": f"{ref_code} ditolak: {reason}.",
+                "warning": warning,
             }
     except Exception as exc:
         return _err(exc, "Gagal memproses verifikasi pembayaran")

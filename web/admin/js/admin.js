@@ -18,10 +18,10 @@ function renderAdminLayout(activeMenu) {
     { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', href: 'voucher.html' },
-    { id: 'checkin', label: '— Check-in', href: 'checkin.html' },
-    { id: 'laporan', label: '— Laporan', locked: true },
-    { id: 'pengguna', label: '— Pengguna', locked: true },
-    { id: 'log', label: '— Log Aktivitas', locked: true }
+    { id: 'checkin', label: '— Check-in', locked: true },
+    { id: 'laporan', label: '— Laporan', href: 'reports.html' },
+    { id: 'pengguna', label: '— Pengguna', href: 'users.html' },
+    { id: 'log', label: '— Log Aktivitas', href: 'activity.html' }
   ];
 
   const navHtml = menus
@@ -686,7 +686,7 @@ function openAnnouncementModal() {
     }
 
     ov.remove();
-    toast("Pengumuman berhasil disimpan!");
+    toast(res.warning || "Pengumuman berhasil disimpan!", res.warning ? "warn" : "success");
     await loadDashboardData();
   };
 
@@ -851,7 +851,7 @@ async function initAdminConcertEdit() {
       }
 
       ov.remove();
-      toast("Venue baru berhasil ditambahkan dan dipilih!");
+      toast(addRes.warning || "Venue baru berhasil ditambahkan dan dipilih!", addRes.warning ? "warn" : "success");
     };
 
     document.body.appendChild(ov);
@@ -890,7 +890,7 @@ async function initAdminConcertEdit() {
       return;
     }
 
-    toast("Informasi konser berhasil disimpan!");
+    toast(updateRes.warning || "Informasi konser berhasil disimpan!", updateRes.warning ? "warn" : "success");
     setTimeout(() => (window.location.href = "concert.html"), 1000);
   };
 }
@@ -1045,7 +1045,7 @@ function renderCategoryTable(admin, list, keyword = "") {
             toast((res && res.message) || "Gagal menghapus kategori.", "error");
             return;
           }
-          toast("Kategori tiket berhasil dihapus.");
+          toast(res.warning || "Kategori tiket berhasil dihapus.", res.warning ? "warn" : "success");
           await loadAdminCategories(admin);
         },
       });
@@ -1130,7 +1130,7 @@ function openCategoryModal(admin, item = null) {
     }
 
     ov.remove();
-    toast(res.message || "Kategori berhasil disimpan!");
+    toast(res.warning || res.message || "Kategori berhasil disimpan!", res.warning ? "warn" : "success");
     await loadAdminCategories(admin);
   };
 
@@ -1294,7 +1294,7 @@ function renderVoucherTable(admin) {
         toast((res && res.message) || "Gagal mengubah status.", "error");
         return;
       }
-      toast(res.message);
+      toast(res.warning || res.message, res.warning ? "warn" : "success");
       await loadVouchers(admin);
     };
   });
@@ -1324,7 +1324,7 @@ function renderVoucherTable(admin) {
             toast((res && res.message) || "Gagal menghapus voucher.", "error");
             return;
           }
-          toast(res.message);
+          toast(res.warning || res.message, res.warning ? "warn" : "success");
           await loadVouchers(admin);
         },
       });
@@ -1431,7 +1431,7 @@ function openVoucherModal(admin, item = null) {
     }
 
     ov.remove();
-    toast(res.message || "Voucher berhasil disimpan!");
+    toast(res.warning || res.message || "Voucher berhasil disimpan!", res.warning ? "warn" : "success");
     await loadVouchers(admin);
   };
 
@@ -1634,6 +1634,54 @@ async function initAdminOrderDetail() {
     document.getElementById('det-buyer-name').textContent = u.full_name || 'Pengunjung';
     document.getElementById('det-buyer-email').textContent = u.email || '-';
     document.getElementById('det-buyer-phone').textContent = u.phone || '-';
+
+    const sel = document.getElementById('det-status-select');
+    const mainBtn = document.getElementById('det-main-action');
+    const hintEl = document.getElementById('det-action-hint');
+
+    const updateStatus = async (targetStatus, title, text) => {
+      confirmModal({
+        title,
+        text,
+        yes: 'Ya, Lanjutkan',
+        onYes: async () => {
+          mainBtn.classList.add('is-loading');
+          mainBtn.disabled = true;
+          const upRes = await backend('admin_update_order_status', [admin.user_id, orderId, targetStatus], null);
+          mainBtn.classList.remove('is-loading');
+          mainBtn.disabled = false;
+          if (!upRes || !upRes.ok) {
+            toast((upRes && upRes.message) || 'Gagal mengubah status.', 'error');
+            return;
+          }
+          toast(upRes.warning || upRes.message, upRes.warning ? "warn" : "success");
+          await loadDetail();
+        }
+      });
+    };
+
+    if (o.status === 'pending') {
+      mainBtn.textContent = 'Verifikasi Pembayaran';
+      hintEl.textContent = 'Menyetujui pembayaran akan otomatis menerbitkan e-ticket.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'paid';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Perubahan status akan memperbarui tiket dan kuota secara otomatis.');
+      };
+    } else if (o.status === 'paid') {
+      mainBtn.textContent = 'Batalkan Tiket';
+      hintEl.textContent = 'Pembatalan memerlukan konfirmasi dan mengembalikan kuota.';
+      mainBtn.onclick = () => {
+        const chosen = sel.value || 'cancelled';
+        updateStatus(chosen, `UBAH STATUS KE ${chosen.toUpperCase()}?`, 'Pembatalan akan menonaktifkan e-ticket dan mengembalikan kuota ke kategori.');
+      };
+    } else {
+      mainBtn.textContent = 'Simpan Perubahan Status';
+      hintEl.textContent = 'Pilih status baru pada dropdown di atas bila diperlukan.';
+      mainBtn.onclick = () => {
+        if (!sel.value) { toast('Pilih status baru terlebih dahulu.', 'warn'); return; }
+        updateStatus(sel.value, `UBAH STATUS KE ${sel.value.toUpperCase()}?`, 'Status pesanan akan diperbarui di database.');
+      };
+    }
 
     document.getElementById('det-ticket-count').textContent = `Menampilkan ${tickets.length} data · Halaman 1 dari 1`;
     const tBody = document.getElementById('det-tickets-body');
@@ -1896,7 +1944,7 @@ function openVerifyPaymentModal(admin, pay) {
     const banner = document.getElementById('pay-feedback-banner');
     if (banner) {
       banner.hidden = false;
-      banner.textContent = res.message;
+      banner.textContent = [res.message, res.warning].filter(Boolean).join(" ");
       if (res.type === 'error') {
         banner.style.color = '#ef4444';
         banner.style.borderColor = 'rgba(239, 68, 68, 0.35)';
@@ -1906,7 +1954,7 @@ function openVerifyPaymentModal(admin, pay) {
       }
     }
 
-    toast(res.message, res.type === 'error' ? 'error' : 'success');
+    toast(res.warning || res.message, res.warning ? 'warn' : res.type === 'error' ? 'error' : 'success');
     await loadAdminPayments(admin);
   };
 
