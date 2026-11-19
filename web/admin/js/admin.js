@@ -18,7 +18,7 @@ function renderAdminLayout(activeMenu) {
     { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
     { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', href: 'voucher.html' },
-    { id: 'checkin', label: '— Check-in', locked: true },
+    { id: 'checkin', label: '— Check-in', href:'checkin.html' },
     { id: 'laporan', label: '— Laporan', href: 'reports.html' },
     { id: 'pengguna', label: '— Pengguna', href: 'users.html' },
     { id: 'log', label: '— Log Aktivitas', href: 'activity.html' }
