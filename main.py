@@ -812,6 +812,131 @@ def create_announcement(user_id, title, content, is_published=True):
         return _err(exc, "Gagal menyimpan pengumuman")
 
 @eel.expose
+def get_admin_announcements(user_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        rows = (
+            supabase.table("announcements")
+            .select("*, users!announcements_author_id_fkey(full_name)")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        try:
+            rows = (
+                supabase.table("announcements")
+                .select("*")
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+            users_map = {
+                str(u["user_id"]): u.get("full_name") or "Admin Publikasi"
+                for u in (supabase.table("users").select("user_id, full_name").execute().data or [])
+            }
+            for r in rows:
+                r["author_name"] = users_map.get(str(r.get("author_id")), "Admin Publikasi")
+        except Exception as exc:
+            return _err(exc, "Gagal memuat daftar pengumuman")
+
+    for r in rows:
+        if "author_name" not in r:
+            u = r.get("users") or {}
+            r["author_name"] = u.get("full_name") if isinstance(u, dict) else "Admin Publikasi"
+
+    try:
+        concerts = (
+            supabase.table("concerts")
+            .select("concert_id, title")
+            .order("concert_date")
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        concerts = [{"concert_id": 1, "title": "The Weeknd · Jakarta"}]
+
+    return {"ok": True, "announcements": rows, "concerts": concerts}
+
+
+@eel.expose
+def save_admin_announcement(user_id, payload):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    data = payload or {}
+    ann_id = data.get("announcement_id")
+    title = (data.get("title") or "").strip()
+    content = (data.get("content") or "").strip()
+    is_published = bool(data.get("is_published"))
+    concert_id = data.get("concert_id")
+
+    if len(title) < 5:
+        return {"ok": False, "message": "Judul pengumuman minimal 5 karakter."}
+    if len(content) < 10:
+        return {"ok": False, "message": "Isi pengumuman minimal 10 karakter."}
+
+    try:
+        if not concert_id:
+            c = supabase.table("concerts").select("concert_id").order("concert_date").limit(1).execute().data
+            concert_id = c[0]["concert_id"] if c else 1
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        row = {
+            "concert_id": int(concert_id),
+            "title": title,
+            "content": content,
+            "is_published": is_published,
+            "published_at": now_iso if is_published else None,
+        }
+
+        if ann_id:
+            res = (
+                supabase.table("announcements")
+                .update(row)
+                .eq("announcement_id", int(ann_id))
+                .execute()
+            )
+            action = "Memperbarui & menerbitkan pengumuman" if is_published else "Menyimpan perubahan draf pengumuman"
+        else:
+            row["author_id"] = str(user_id)
+            res = supabase.table("announcements").insert(row).execute()
+            action = "Menerbitkan pengumuman" if is_published else "Menyimpan draf pengumuman"
+
+        warning = _record_admin_activity(user_id, action, f"Pengumuman / {title}")
+        return {
+            "ok": True,
+            "item": res.data[0] if res.data else row,
+            "warning": warning,
+        }
+    except Exception as exc:
+        return _err(exc, "Gagal menyimpan pengumuman")
+
+
+@eel.expose
+def delete_admin_announcement(user_id, announcement_id):
+    if not _require_admin(user_id):
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        existing = (
+            supabase.table("announcements")
+            .select("title")
+            .eq("announcement_id", int(announcement_id))
+            .limit(1)
+            .execute()
+            .data
+        )
+        title = existing[0]["title"] if existing else f"ID {announcement_id}"
+        supabase.table("announcements").delete().eq("announcement_id", int(announcement_id)).execute()
+        warning = _record_admin_activity(user_id, "Menghapus pengumuman", f"Pengumuman / {title}")
+        return {"ok": True, "warning": warning}
+    except Exception as exc:
+        return _err(exc, "Gagal menghapus pengumuman")
+
+@eel.expose
 def get_admin_concert_detail(user_id):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}

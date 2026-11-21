@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Pengumuman · Panel Panitia</title>
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <aside class="adm-side" id="admin-sidebar"></aside>
+
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <div>
+          <div class="adm-crumb">Panel Panitia / Pengumuman</div>
+          <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+        </div>
+        <div class="adm-top-actions">
+          <div class="adm-search-wrap">
+            <svg class="adm-search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input class="adm-search" id="ann-top-search" type="search" placeholder="Cari pengumuman...">
+          </div>
+          <button class="adm-bell" type="button" title="Notifikasi" aria-label="Notifikasi">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </button>
+          <span style="font-size:13px" id="top-admin-name">Admin Publikasi</span>
+        </div>
+      </header>
+
+      <!-- ===== MODE 1: DAFTAR PENGUMUMAN (A8 / A8d) ===== -->
+      <div id="ann-list-view">
+        <section class="adm-hero-row">
+          <div>
+            <p class="eyebrow">TIM PUBLIKASI / AFTER HOURS TIL DAWN</p>
+            <h1 class="adm-title">KABAR UNTUK PARA FANS.</h1>
+            <p class="adm-stamp">Kelola informasi yang tampil di sisi pengunjung.</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-create-ann">+ Buat Pengumuman</button>
+        </section>
+
+        <div id="ann-status-banner" class="ann-feedback-banner" hidden></div>
+
+        <section class="ann-kpi-grid">
+          <article class="card ann-kpi-card">
+            <span class="ann-kpi-lbl">Total pengumuman</span>
+            <strong class="ann-kpi-val" id="ann-kpi-total">00</strong>
+          </article>
+          <article class="card ann-kpi-card">
+            <span class="ann-kpi-lbl">Published</span>
+            <strong class="ann-kpi-val" id="ann-kpi-pub">00</strong>
+          </article>
+          <article class="card ann-kpi-card">
+            <span class="ann-kpi-lbl">Draft</span>
+            <strong class="ann-kpi-val" id="ann-kpi-draft">00</strong>
+          </article>
+        </section>
+
+        <section class="card box">
+          <div class="ann-filter-row">
+            <div class="field" style="margin:0;flex:1;min-width:220px">
+              <label for="ann-search-input">Pencarian</label>
+              <input class="input" id="ann-search-input" type="search" placeholder="Cari judul pengumuman...">
+            </div>
+            <select class="admin-select" id="ann-status-filter" aria-label="Filter status pengumuman">
+              <option value="">Semua status</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+            <button type="button" class="ann-reset-link" id="ann-reset-filter">Reset</button>
+          </div>
+
+          <div class="admin-table-scroll">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>JUDUL PENGUMUMAN</th>
+                  <th>PENULIS</th>
+                  <th>STATUS</th>
+                  <th>DIPERBARUI</th>
+                  <th>AKSI</th>
+                </tr>
+              </thead>
+              <tbody id="ann-table-body">
+                <tr><td colspan="5" class="muted">Memuat pengumuman...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="admin-pagination">
+            <span id="ann-count-info">Menampilkan 0 data</span>
+            <div class="admin-page-controls">
+              <button type="button" class="admin-page-btn" id="ann-prev" aria-label="Halaman sebelumnya">←</button>
+              <span id="ann-page-no">1</span>
+              <button type="button" class="admin-page-btn" id="ann-next" aria-label="Halaman berikutnya">→</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card box ann-bottom-cta" id="ann-bottom-cta">
+          <h2 class="ann-cta-title">JANGAN BIARKAN FANS KETINGGALAN KABAR.</h2>
+          <p class="muted" style="font-size:13px">Simpan sebagai draft untuk ditinjau tim, atau publikasikan setelah informasi konser dipastikan benar. Semua konten dalam prototype ini adalah simulasi akademik.</p>
+          <div class="ann-cta-btns">
+            <a href="../../news.html" class="btn btn-primary" style="min-width:220px">Lihat publikasi →</a>
+            <button type="button" class="btn btn-outline" id="btn-revert-last-draft" style="min-width:220px" hidden>Jadikan draft kembali</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ===== MODE 2: EDITOR PENGUMUMAN (A8e) ===== -->
+      <div id="ann-editor-view" hidden>
+        <section class="adm-hero-row">
+          <div>
+            <p class="eyebrow">PENGUMUMAN / EDITOR</p>
+            <h1 class="adm-title">BUAT KABARNYA BERARTI.</h1>
+            <p class="adm-stamp">Konten siap ditinjau sebelum dipublikasikan.</p>
+          </div>
+          <button type="button" class="btn btn-outline" id="btn-back-ann-list">← Kembali</button>
+        </section>
+
+        <div class="ann-editor-grid">
+          <div class="card box">
+            <div class="field">
+              <label for="ed-title">Judul pengumuman</label>
+              <input class="input" id="ed-title" placeholder="Informasi gate open & akses masuk venue">
+            </div>
+
+            <div class="field">
+              <label>Gambar header</label>
+              <div class="ann-visual-banner">
+                <small>AFTER HOURS / JAKARTA 2027</small>
+                <div class="ann-visual-heading">THE NIGHT<br>STARTS HERE.</div>
+                <span class="ann-visual-foot">VISUAL KONSEP · TANPA FOTO ASLI ARTIS</span>
+              </div>
+              <p class="muted" style="font-size:11px;margin-top:4px">header-afterhours.jpg · Contoh visual</p>
+            </div>
+
+            <div class="field">
+              <label for="ed-content">Isi pengumuman</label>
+              <div class="ann-rich-box">
+                <div class="ann-rich-toolbar">
+                  <button type="button" data-fmt="bold" title="Tebal"><strong>B</strong></button>
+                  <button type="button" data-fmt="italic" title="Miring"><em>I</em></button>
+                  <button type="button" data-fmt="bullet" title="Daftar poin">≡</button>
+                  <button type="button" data-fmt="number" title="Daftar bernomor">1.</button>
+                  <button type="button" data-fmt="link" title="Tautan">↗</button>
+                </div>
+                <textarea class="ann-rich-textarea" id="ed-content" rows="9" placeholder="Tulis detail informasi konser untuk para pengunjung..."></textarea>
+              </div>
+              <p class="muted" style="font-size:11px;margin-top:4px" id="ed-word-meta">0 kata · Belum disimpan</p>
+            </div>
+          </div>
+
+          <aside class="card box ann-settings-card">
+            <h2 class="ann-settings-title">PENGATURAN</h2>
+            <span class="ann-badge-state" id="ed-state-label">Draft</span>
+
+            <div class="field">
+              <label for="ed-concert">Konser terkait</label>
+              <select class="admin-select" id="ed-concert" style="width:100%"></select>
+            </div>
+
+            <div>
+              <p class="eyebrow" style="margin-bottom:6px">VISIBILITAS</p>
+              <strong style="font-size:14px;display:block;margin-bottom:6px" id="ed-vis-title">Draft / Belum dipublikasikan</strong>
+              <p class="muted" style="font-size:12px;line-height:1.5">Konten baru tampil di sisi pengunjung setelah konfirmasi publikasi.</p>
+            </div>
+
+            <div class="ann-settings-actions">
+              <button type="button" class="btn btn-outline btn-block" id="btn-ed-preview">Pratinjau ↗</button>
+              <button type="button" class="btn btn-outline btn-block" id="btn-ed-draft">Simpan Draft</button>
+              <button type="button" class="btn btn-primary btn-block" id="btn-ed-publish">Publikasikan →</button>
+            </div>
+
+            <div class="muted" style="font-size:11px;line-height:1.6">
+              <div>Penulis: <span id="ed-author-name">Admin Publikasi</span></div>
+              <div>Bahasa: Indonesia</div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:8px">
+              <button type="button" id="btn-ed-delete" style="background:none;border:0;color:#ef4444;font-size:12px;cursor:pointer" hidden>Hapus</button>
+              <button type="button" id="btn-ed-cancel" style="background:none;border:0;color:var(--text-2);font-size:13px;cursor:pointer;margin-left:auto">Batal</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <footer class="a1-foot">PROYEK AKADEMIK · DATA &amp; AKSI SIMULASI</footer>
+    </div>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminAnnouncements);</script>
+</body>
+</html>
