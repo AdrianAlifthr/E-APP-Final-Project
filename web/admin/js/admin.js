@@ -99,10 +99,10 @@ function renderAdminLayout(activeMenu) {
       title: "KELUAR PANEL PANITIA?",
       text: "Sesi admin akan diakhiri.",
       yes: "Keluar",
-      onYes: async () => {
-        await backend("admin_logout", [], null);
+      onYes: () => {
+        backend("admin_logout", [], null);
         Auth.clear();
-        window.location.href = "login.html";
+        window.location.replace("login.html");
       },
     });
 }
@@ -1959,4 +1959,646 @@ function openVerifyPaymentModal(admin, pay) {
   };
 
   document.body.appendChild(ov);
+}
+/* ----- A11: Laporan Penjualan ----- */
+const REPORT_LABEL = new Intl.NumberFormat('id-ID');
+let _reportData = null;
+let _reportRows = [];
+
+function reportDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function reportDateKey(value) {
+  const date = value instanceof Date ? value : reportDate(value);
+  if (!date) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function reportRange() {
+  const start = document.getElementById('report-start').value;
+  const end = document.getElementById('report-end').value;
+  if (start && end && start > end) {
+    toast('Tanggal mulai tidak boleh melewati tanggal akhir.', 'error');
+    return null;
+  }
+  return { start, end };
+}
+
+function buildReport(range, categoryId) {
+  const categories = _reportData.categories || [];
+  const categoryMap = new Map(categories.map(c => [String(c.category_id), c]));
+  const orderMap = new Map((_reportData.orders || [])
+    .filter(o => o.status === 'paid')
+    .filter(o => {
+      const date = reportDate(o.created_at);
+      if (!date) return !range.start && !range.end;
+      const day = reportDateKey(date);
+      return (!range.start || day >= range.start) && (!range.end || day <= range.end);
+    })
+    .map(o => [String(o.order_id), o]));
+
+  const totals = new Map();
+  let ticketCount = 0;
+  let revenue = 0;
+  let discount = 0;
+
+  for (const [orderId, order] of orderMap) {
+    const orderItems = (_reportData.items || []).filter(it => String(it.order_id) === orderId);
+    const orderSubtotal = Number(order.subtotal) || orderItems.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+    const orderDiscount = Number(order.discount) || 0;
+    const selectedItems = orderItems.filter(it => !categoryId || String(it.category_id) === categoryId);
+    const selectedSubtotal = selectedItems.reduce((sum, it) => {
+      const lineTotal = Number(it.subtotal) || (Number(it.unit_price) || 0) * (Number(it.quantity) || 0);
+      return sum + lineTotal;
+    }, 0);
+    const selectedDiscount = orderSubtotal > 0 ? orderDiscount * selectedSubtotal / orderSubtotal : 0;
+
+    if (selectedItems.length) {
+      discount += selectedDiscount;
+      revenue += selectedSubtotal - selectedDiscount;
+    }
+
+    for (const item of selectedItems) {
+      const key = String(item.category_id);
+      const related = item.ticket_categories || {};
+      const category = categoryMap.get(key) || {};
+      const quantity = Number(item.quantity) || 0;
+      const lineTotal = Number(item.subtotal) || (Number(item.unit_price) || Number(category.price) || 0) * quantity;
+      const lineDiscount = selectedSubtotal > 0 ? selectedDiscount * lineTotal / selectedSubtotal : 0;
+      const row = totals.get(key) || {
+        category_id: key,
+        name: related.name || category.name || 'Kategori',
+        quantity: 0,
+        unit_price: Number(category.price) || Number(item.unit_price) || 0,
+        discount: 0,
+        revenue: 0,
+      };
+      row.quantity += quantity;
+      row.discount += lineDiscount;
+      row.revenue += lineTotal - lineDiscount;
+      totals.set(key, row);
+      ticketCount += quantity;
+    }
+  }
+
+  const rows = categories
+    .filter(c => !categoryId || String(c.category_id) === categoryId)
+    .map(c => totals.get(String(c.category_id)) || {
+      category_id: String(c.category_id),
+      name: c.name,
+      quantity: 0,
+      unit_price: Number(c.price) || 0,
+      discount: 0,
+      revenue: 0,
+    });
+
+  return { rows, ticketCount, revenue, discount };
+}
+
+function renderReport() {
+  const range = reportRange();
+  if (!range) return;
+  const categoryId = document.getElementById('report-category').value;
+  const result = buildReport(range, categoryId);
+  _reportRows = result.rows;
+
+  document.getElementById('report-tickets').textContent = REPORT_LABEL.format(result.ticketCount);
+  document.getElementById('report-revenue').textContent = rupiah(Math.round(result.revenue));
+  document.getElementById('report-discount').textContent = rupiah(Math.round(result.discount));
+
+  const dateDescription = range.start || range.end
+    ? `Periode ${range.start ? tanggal(range.start) : 'awal'} – ${range.end ? tanggal(range.end) : 'terbaru'}`
+    : 'Seluruh periode penjualan';
+  document.getElementById('report-caption').textContent = `${dateDescription} · hanya pesanan lunas.`;
+
+  const max = Math.max(1, ..._reportRows.map(r => r.quantity));
+  document.getElementById('report-chart').innerHTML = _reportRows.length
+    ? _reportRows.map(row => {
+        const height = row.quantity ? Math.max(6, Math.round(row.quantity / max * 100)) : 2;
+        return `<div class="report-bar">
+          <span class="report-bar-count">${REPORT_LABEL.format(row.quantity)}</span>
+          <div class="report-bar-track"><div class="report-bar-fill" style="height:${height}%"></div></div>
+          <span class="report-bar-label">${esc(row.name)}</span>
+        </div>`;
+      }).join('')
+    : '<p class="muted">Tidak ada kategori tiket.</p>';
+
+  const body = document.getElementById('report-table-body');
+  body.innerHTML = _reportRows.length
+    ? _reportRows.map(row => `<tr>
+        <td style="font-weight:500">${esc(row.name)}</td>
+        <td>${REPORT_LABEL.format(row.quantity)}</td>
+        <td>${rupiah(row.unit_price)}</td>
+        <td>${rupiah(Math.round(row.discount))}</td>
+        <td>${rupiah(Math.round(row.revenue))}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="muted">Tidak ada data penjualan.</td></tr>';
+}
+
+function exportReportCsv() {
+  if (!_reportRows.length) return toast('Tidak ada data untuk diekspor.', 'warn');
+  const rows = [['Kategori', 'Tiket terjual', 'Harga satuan', 'Diskon', 'Pendapatan']];
+  _reportRows.forEach(row => rows.push([
+    row.name, row.quantity, Math.round(row.unit_price), Math.round(row.discount), Math.round(row.revenue),
+  ]));
+  const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `laporan-penjualan-${reportDateKey(new Date())}.csv`;
+  const url = link.href;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportReportPdf() {
+  if (!_reportRows.length) return toast('Tidak ada data untuk diekspor.', 'warn');
+
+  const admin = getAdminSession() || {};
+  const start = document.getElementById('report-start').value;
+  const end = document.getElementById('report-end').value;
+  const catSel = document.getElementById('report-category');
+  const catLabel = catSel.value ? catSel.options[catSel.selectedIndex].text : 'Semua kategori';
+
+  const periodeText = start || end
+    ? `${start ? tanggal(start) : 'Awal'} – ${end ? tanggal(end) : 'Terbaru'}`
+    : 'Seluruh periode penjualan';
+
+  const totalTickets = document.getElementById('report-tickets').textContent;
+  const totalRevenue = document.getElementById('report-revenue').textContent;
+  const totalDiscount = document.getElementById('report-discount').textContent;
+  const printedAt = new Date().toLocaleString('id-ID', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }).replace('.', ':') + ' WIB';
+
+  const maxQty = Math.max(1, ..._reportRows.map(r => r.quantity));
+  const barsHtml = _reportRows.map(r => {
+    const pct = r.quantity ? Math.max(8, Math.round((r.quantity / maxQty) * 100)) : 3;
+    return `
+      <div class="bar-col">
+        <div class="bar-val">${REPORT_LABEL.format(r.quantity)}</div>
+        <div class="bar-track">
+          <div class="bar-fill" style="height:${pct}%"></div>
+        </div>
+        <div class="bar-lbl">${esc(r.name)}</div>
+      </div>`;
+  }).join('');
+
+  const rowsHtml = _reportRows.map(r => `
+    <tr>
+      <td class="bold">${esc(r.name)}</td>
+      <td class="num">${REPORT_LABEL.format(r.quantity)}</td>
+      <td class="num">${rupiah(r.unit_price)}</td>
+      <td class="num">${rupiah(Math.round(r.discount))}</td>
+      <td class="num bold">${rupiah(Math.round(r.revenue))}</td>
+    </tr>`).join('');
+
+  const printWin = window.open('', '_blank', 'width=960,height=800');
+  if (!printWin) return toast('Izinkan pop-up browser untuk mencetak PDF.', 'error');
+
+  printWin.document.write(`<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Laporan Penjualan - The Weeknd Jakarta 2027</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    @page { size: A4 portrait; margin: 14mm 16mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: 'Inter', Arial, sans-serif; background: #ffffff; color: #111111; font-size: 12px; line-height: 1.45; }
+
+    .header { background: #0d0d0f; color: #ffffff; padding: 22px 26px; border-radius: 10px; display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 4px solid #c8102e; margin-bottom: 18px; }
+    .eyebrow { color: #c8102e; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+    .title { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 36px; letter-spacing: 1px; line-height: 1; }
+    .subtitle { color: #a1a1aa; font-size: 11px; margin-top: 4px; }
+    .meta { text-align: right; font-size: 11px; color: #d4d4d8; }
+    .meta strong { color: #ffffff; display: block; font-size: 12px; margin-bottom: 2px; }
+
+    .filter-bar { display: flex; justify-content: space-between; background: #f4f4f5; border: 1px solid #e4e4e7; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 11px; color: #52525b; }
+    .filter-bar strong { color: #111111; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+    .kpi-card { background: #fafafa; border: 1px solid #e4e4e7; border-left: 4px solid #c8102e; border-radius: 8px; padding: 14px 16px; }
+    .kpi-lbl { font-size: 11px; color: #71717a; display: block; margin-bottom: 4px; }
+    .kpi-val { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 28px; letter-spacing: 0.5px; color: #09090b; line-height: 1; }
+
+    .section-box { border: 1px solid #e4e4e7; border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+    .section-title { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 20px; letter-spacing: 0.6px; color: #09090b; margin-bottom: 12px; }
+
+    .chart-grid { height: 145px; display: grid; grid-template-columns: repeat(${_reportRows.length}, 1fr); gap: 16px; align-items: end; padding-top: 8px; }
+    .bar-col { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; }
+    .bar-val { font-size: 11px; font-weight: 600; color: #111111; }
+    .bar-track { width: 64%; max-width: 72px; height: 95px; background: #f4f4f5; border-radius: 4px 4px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .bar-fill { width: 100%; background: #c8102e; border-radius: 4px 4px 0 0; }
+    .bar-lbl { font-size: 10px; font-weight: 500; color: #52525b; text-align: center; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    th { background: #18181b; color: #ffffff; text-align: left; font-size: 10px; letter-spacing: 0.06em; padding: 9px 12px; }
+    th.num, td.num { text-align: right; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e4e4e7; color: #27272a; }
+    tr:nth-child(even) td { background: #fafafa; }
+    tr:last-child td { border-bottom: 0; }
+    .bold { font-weight: 600; color: #09090b; }
+    .total-row td { background: #f4f4f5 !important; border-top: 2px solid #18181b; font-weight: 600; color: #09090b; }
+
+    .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e4e4e7; display: flex; justify-content: space-between; font-size: 10px; color: #71717a; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="eyebrow">PANEL PANITIA · ANALITIK PENJUALAN</div>
+      <div class="title">LAPORAN PENJUALAN TIKET</div>
+      <div class="subtitle">THE WEEKND · AFTER HOURS TIL DAWN — GELORA BUNG KARNO, JAKARTA</div>
+    </div>
+    <div class="meta">
+      <strong>Dicetak oleh: ${esc(admin.full_name || 'Admin Panitia')}</strong>
+      <span>${printedAt}</span>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <span>Periode: <strong>${esc(periodeText)}</strong></span>
+    <span>Kategori: <strong>${esc(catLabel)}</strong></span>
+    <span>Status Pesanan: <strong>Lunas (Paid)</strong></span>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <span class="kpi-lbl">TOTAL TIKET TERJUAL</span>
+      <span class="kpi-val">${esc(totalTickets)} TIKET</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-lbl">TOTAL PENDAPATAN BERSIH</span>
+      <span class="kpi-val">${esc(totalRevenue)}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-lbl">TOTAL DISKON VOUCHER</span>
+      <span class="kpi-val">${esc(totalDiscount)}</span>
+    </div>
+  </div>
+
+  <div class="section-box">
+    <div class="section-title">GRAFIK PENJUALAN PER KATEGORI</div>
+    <div class="chart-grid">${barsHtml}</div>
+  </div>
+
+  <div class="section-box" style="padding:0;overflow:hidden">
+    <table>
+      <thead>
+        <tr>
+          <th>KATEGORI TIKET</th>
+          <th class="num">TERJUAL</th>
+          <th class="num">HARGA SATUAN</th>
+          <th class="num">DISKON</th>
+          <th class="num">PENDAPATAN BERSIH</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td>TOTAL KESELURUHAN</td>
+          <td class="num">${esc(totalTickets)}</td>
+          <td class="num">—</td>
+          <td class="num">${esc(totalDiscount)}</td>
+          <td class="num">${esc(totalRevenue)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <span>PROYEK AKADEMIK · DATA SIMULASI</span>
+    <span>TOTAL BERSIH = PENJUALAN TIKET − DISKON</span>
+  </div>
+
+  <script>
+    window.onload = () => {
+      setTimeout(() => { window.print(); window.close(); }, 300);
+    };
+  </script>
+</body>
+</html>`);
+  printWin.document.close();
+}
+
+async function initAdminReports() {
+  const admin = getAdminSession();
+  if (!admin) { window.location.replace('login.html'); return; }
+
+  renderAdminLayout('laporan');
+
+  const response = await backend('get_admin_sales_report', [admin.user_id], null);
+  if (!response || !response.ok) {
+    toast((response && response.message) || 'Gagal memuat laporan penjualan.', 'error');
+    document.getElementById('report-table-body').innerHTML =
+      '<tr><td colspan="5" class="muted">Laporan tidak dapat dimuat.</td></tr>';
+    return;
+  }
+
+  _reportData = response;
+  const select = document.getElementById('report-category');
+  (response.categories || []).forEach(category => {
+    const option = document.createElement('option');
+    option.value = category.category_id;
+    option.textContent = category.name;
+    select.appendChild(option);
+  });
+
+  const paidDates = (response.orders || [])
+    .filter(order => order.status === 'paid')
+    .map(order => reportDate(order.created_at))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+  if (paidDates.length) {
+    const latest = paidDates[paidDates.length - 1];
+    const start = new Date(latest);
+    start.setDate(start.getDate() - 3);
+    document.getElementById('report-start').value = reportDateKey(start);
+    document.getElementById('report-end').value = reportDateKey(latest);
+  }
+
+  document.getElementById('report-apply').onclick = renderReport;
+  document.getElementById('report-reset').onclick = () => {
+    document.getElementById('report-start').value = '';
+    document.getElementById('report-end').value = '';
+    document.getElementById('report-category').value = '';
+    renderReport();
+  };
+  document.getElementById('report-category').onchange = renderReport;
+  document.getElementById('report-top-search').oninput = event => {
+    const keyword = event.target.value.trim().toLowerCase();
+    const option = [...select.options].find(item => item.textContent.toLowerCase().includes(keyword));
+    if (keyword && option) select.value = option.value;
+    else if (!keyword) select.value = '';
+    renderReport();
+  };
+  document.getElementById('report-export-csv').onclick = exportReportCsv;
+  document.getElementById('report-export-pdf').onclick = exportReportPdf;
+
+  renderReport();
+}
+const USERS_PER_PAGE = 10;
+let adminUsers = [];
+let usersPage = 1;
+
+function filteredAdminUsers() {
+  const query = document.getElementById('users-query').value.trim().toLowerCase();
+  const role = document.getElementById('users-role').value;
+  const status = document.getElementById('users-status').value;
+  return adminUsers.filter(user => {
+    const matchesQuery = !query ||
+      String(user.full_name || '').toLowerCase().includes(query) ||
+      String(user.email || '').toLowerCase().includes(query);
+    const matchesRole = !role || user.role === role;
+    const matchesStatus = !status || (user.is_active ? 'active' : 'blocked') === status;
+    return matchesQuery && matchesRole && matchesStatus;
+  });
+}
+
+function formatUserDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleDateString('id-ID', {day: '2-digit', month: 'short', year: 'numeric'});
+}
+
+function renderAdminUsers() {
+  const list = filteredAdminUsers();
+  const pages = Math.max(1, Math.ceil(list.length / USERS_PER_PAGE));
+  usersPage = Math.min(usersPage, pages);
+  const start = (usersPage - 1) * USERS_PER_PAGE;
+  const visible = list.slice(start, start + USERS_PER_PAGE);
+  const body = document.getElementById('users-table-body');
+
+  document.getElementById('users-count-info').textContent =
+    `Menampilkan ${list.length} data · Halaman ${usersPage} dari ${pages}`;
+  document.getElementById('users-page-number').textContent = usersPage;
+  document.getElementById('users-prev').disabled = usersPage <= 1;
+  document.getElementById('users-next').disabled = usersPage >= pages;
+
+  body.innerHTML = visible.length ? visible.map(user => `
+    <tr>
+      <td><button type="button" class="admin-user-name" data-user-detail="${esc(user.user_id)}">${esc(user.full_name || 'Tanpa nama')}</button></td>
+      <td>${esc(user.email || '—')}</td>
+      <td>${esc(user.phone || '—')}</td>
+      <td>${esc(user.role || 'customer')}</td>
+      <td><span class="user-status ${user.is_active ? 'active' : 'blocked'}">${user.is_active ? 'Aktif' : 'Diblokir'}</span></td>
+      <td>${formatUserDate(user.created_at)}</td>
+      <td>${Number(user.order_count) || 0}</td>
+      <td>${user.is_active
+        ? `<button type="button" class="admin-row-action" data-user-detail="${esc(user.user_id)}">Detail →</button>`
+        : `<button type="button" class="admin-row-action activate" data-user-activate="${esc(user.user_id)}">Aktifkan</button>`}</td>
+    </tr>`).join('')
+    : '<tr><td colspan="8" class="muted">Tidak ada pengguna yang cocok dengan filter.</td></tr>';
+}
+
+function openAdminUserDetail(user) {
+  const admin = getAdminSession();
+  const isSelf = String(user.user_id) === String(admin.user_id);
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.innerHTML = `<section class="modal modal-lg admin-user-modal" role="dialog" aria-modal="true" aria-labelledby="user-detail-title">
+    <h3 id="user-detail-title">DETAIL PENGGUNA</h3>
+    <div class="admin-detail-list">
+      <div class="admin-detail-row"><span>Nama</span><span>${esc(user.full_name || '—')}</span></div>
+      <div class="admin-detail-row"><span>Email</span><span>${esc(user.email || '—')}</span></div>
+      <div class="admin-detail-row"><span>No. HP</span><span>${esc(user.phone || '—')}</span></div>
+      <div class="admin-detail-row"><span>Role</span><span>${esc(user.role || 'customer')}</span></div>
+      <div class="admin-detail-row"><span>Status</span><span>${user.is_active ? 'Aktif' : 'Diblokir'}</span></div>
+      <div class="admin-detail-row"><span>Terdaftar</span><span>${formatUserDate(user.created_at)}</span></div>
+      <div class="admin-detail-row"><span>Pesanan</span><span>${Number(user.order_count) || 0}</span></div>
+    </div>
+    ${isSelf ? '<p class="admin-user-state">Akun admin yang sedang digunakan tidak dapat dinonaktifkan.</p>' : ''}
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" data-user-close>Tutup</button>
+      ${!isSelf ? `<button type="button" class="btn ${user.is_active ? 'btn-outline' : 'btn-primary'}" data-user-toggle>
+        ${user.is_active ? 'Nonaktifkan akun' : 'Aktifkan akun'}
+      </button>` : ''}
+    </div>
+  </section>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('[data-user-close]').onclick = () => overlay.remove();
+  overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
+  const toggle = overlay.querySelector('[data-user-toggle]');
+  if (toggle) toggle.onclick = () => changeAdminUserStatus(user, !user.is_active, overlay);
+}
+
+async function changeAdminUserStatus(user, active, overlay) {
+  if (!active && !overlay) return;
+  if (!active) {
+    return confirmModal({
+      title: 'NONAKTIFKAN AKUN?',
+      text: `Akun ${user.full_name || user.email} tidak akan dapat masuk atau memesan tiket sampai diaktifkan kembali.`,
+      yes: 'Nonaktifkan',
+      onYes: () => saveAdminUserStatus(user, false, overlay),
+    });
+  }
+  return saveAdminUserStatus(user, active, overlay);
+}
+
+async function saveAdminUserStatus(user, active, overlay) {
+  const admin = getAdminSession();
+  const button = overlay ? overlay.querySelector('[data-user-toggle]') : null;
+  if (button) { button.disabled = true; button.classList.add('is-loading'); }
+  const response = await backend('admin_set_user_active', [admin.user_id, user.user_id, active], null);
+  if (!response || !response.ok) {
+    if (button) { button.disabled = false; button.classList.remove('is-loading'); }
+    return toast((response && response.message) || 'Gagal mengubah status akun.', 'error');
+  }
+  if (overlay) overlay.remove();
+  toast(response.warning || response.message, response.warning ? 'warn' : 'success');
+  await loadAdminUsers();
+}
+
+async function loadAdminUsers() {
+  const admin = getAdminSession();
+  const response = await backend('get_admin_users', [admin.user_id], null);
+  if (!response || !response.ok) {
+    toast((response && response.message) || 'Gagal memuat data pengguna.', 'error');
+    document.getElementById('users-table-body').innerHTML =
+      '<tr><td colspan="8" class="muted">Data pengguna tidak dapat dimuat.</td></tr>';
+    return;
+  }
+  adminUsers = response.users || [];
+  renderAdminUsers();
+}
+
+async function initAdminUsers() {
+  const admin = getAdminSession();
+  if (!admin) return window.location.replace('login.html');
+  renderAdminLayout('pengguna');
+
+  const applyFilters = () => { usersPage = 1; renderAdminUsers(); };
+  document.getElementById('users-query').addEventListener('input', applyFilters);
+  document.getElementById('users-role').addEventListener('change', applyFilters);
+  document.getElementById('users-status').addEventListener('change', applyFilters);
+  document.getElementById('users-top-search').addEventListener('input', event => {
+    document.getElementById('users-query').value = event.target.value;
+    applyFilters();
+  });
+  document.getElementById('users-prev').onclick = () => { usersPage--; renderAdminUsers(); };
+  document.getElementById('users-next').onclick = () => { usersPage++; renderAdminUsers(); };
+  document.getElementById('users-table-body').addEventListener('click', event => {
+    const detail = event.target.closest('[data-user-detail]');
+    const activate = event.target.closest('[data-user-activate]');
+    if (detail) {
+      const user = adminUsers.find(item => String(item.user_id) === detail.dataset.userDetail);
+      if (user) openAdminUserDetail(user);
+    } else if (activate) {
+      const user = adminUsers.find(item => String(item.user_id) === activate.dataset.userActivate);
+      if (user) changeAdminUserStatus(user, true, null);
+    }
+  });
+  await loadAdminUsers();
+}
+
+document.addEventListener('DOMContentLoaded', initAdminUsers);
+const ACTIVITY_PER_PAGE = 10;
+let activityLogs = [];
+let activityPage = 1;
+
+function activityDateKey(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function filteredActivityLogs() {
+  const admin = document.getElementById('activity-admin').value;
+  const action = document.getElementById('activity-action').value;
+  const date = document.getElementById('activity-date').value;
+  const query = document.getElementById('activity-top-search').value.trim().toLowerCase();
+  return activityLogs.filter(log => {
+    const logDay = activityDateKey(log.created_at);
+    const searchable = `${log.admin_name || ''} ${log.action || ''} ${log.object_label || ''}`.toLowerCase();
+    return (!admin || log.admin_name === admin) &&
+      (!action || log.action === action) &&
+      (!date || logDay === date) &&
+      (!query || searchable.includes(query));
+  });
+}
+
+function formatActivityTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return `${date.toLocaleDateString('id-ID', {day: '2-digit', month: 'short', timeZone: 'Asia/Jakarta'})} · ${date.toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta'})}`;
+}
+
+function renderActivityLogs() {
+  const filtered = filteredActivityLogs();
+  const pages = Math.max(1, Math.ceil(filtered.length / ACTIVITY_PER_PAGE));
+  activityPage = Math.min(activityPage, pages);
+  const start = (activityPage - 1) * ACTIVITY_PER_PAGE;
+  const visible = filtered.slice(start, start + ACTIVITY_PER_PAGE);
+
+  document.getElementById('activity-count-info').textContent =
+    `Menampilkan ${filtered.length} data · Halaman ${activityPage} dari ${pages}`;
+  document.getElementById('activity-page-number').textContent = activityPage;
+  document.getElementById('activity-prev').disabled = activityPage <= 1;
+  document.getElementById('activity-next').disabled = activityPage >= pages;
+  document.getElementById('activity-table-body').innerHTML = visible.length
+    ? visible.map(log => `<tr>
+        <td>${formatActivityTime(log.created_at)}</td>
+        <td>${esc(log.admin_name || 'Admin')}</td>
+        <td>${esc(log.action || '—')}</td>
+        <td>${esc(log.object_label || '—')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="muted">Tidak ada aktivitas yang cocok dengan filter.</td></tr>';
+}
+
+async function initAdminActivity() {
+  const admin = getAdminSession();
+  if (!admin) return window.location.replace('login.html');
+  renderAdminLayout('log');
+
+  const response = await backend('get_admin_activity_logs', [admin.user_id], null);
+  if (!response || !response.ok) {
+    toast((response && response.message) || 'Gagal memuat log aktivitas.', 'error');
+    document.getElementById('activity-table-body').innerHTML =
+      '<tr><td colspan="4" class="muted">Log aktivitas tidak dapat dimuat.</td></tr>';
+    return;
+  }
+  activityLogs = response.logs || [];
+
+  const admins = [...new Set(activityLogs.map(log => log.admin_name).filter(Boolean))].sort();
+  const actions = [...new Set(activityLogs.map(log => log.action).filter(Boolean))].sort();
+  const adminSelect = document.getElementById('activity-admin');
+  const actionSelect = document.getElementById('activity-action');
+  admins.forEach(name => adminSelect.add(new Option(name, name)));
+  actions.forEach(action => actionSelect.add(new Option(action, action)));
+
+  [adminSelect, actionSelect, document.getElementById('activity-date')].forEach(input =>
+    input.addEventListener('change', () => { activityPage = 1; renderActivityLogs(); }));
+  document.getElementById('activity-top-search').addEventListener('input', () => {
+    activityPage = 1;
+    renderActivityLogs();
+  });
+  document.getElementById('activity-reset').onclick = () => {
+    adminSelect.value = '';
+    actionSelect.value = '';
+    document.getElementById('activity-date').value = '';
+    document.getElementById('activity-top-search').value = '';
+    activityPage = 1;
+    renderActivityLogs();
+  };
+  document.getElementById('activity-prev').onclick = () => { activityPage--; renderActivityLogs(); };
+  document.getElementById('activity-next').onclick = () => { activityPage++; renderActivityLogs(); };
+  renderActivityLogs();
 }
