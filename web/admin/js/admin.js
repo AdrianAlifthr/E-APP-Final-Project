@@ -16,7 +16,7 @@ function renderAdminLayout(activeMenu) {
     { id: 'kategori', label: '— Kategori Tiket', href: 'categories.html' },
     { id: 'pesanan', label: '— Pesanan', href: 'orders.html' },
     { id: 'pembayaran', label: '— Pembayaran', href: 'payments.html' },
-    { id: 'pengumuman', label: 'Pengumuman', action: 'ann', icon: icoAnn },
+    { id: 'pengumuman', label: 'Pengumuman', href: 'announcements.html', icon: icoAnn },
     { id: 'voucher', label: '— Voucher', href: 'voucher.html' },
     { id: 'checkin', label: '— Check-in', href:'checkin.html' },
     { id: 'laporan', label: '— Laporan', href: 'reports.html' },
@@ -100,9 +100,11 @@ function renderAdminLayout(activeMenu) {
       text: "Sesi admin akan diakhiri.",
       yes: "Keluar",
       onYes: () => {
-        backend("admin_logout", [], null);
         Auth.clear();
-        window.location.replace("login.html");
+        backend("admin_logout", [], null);
+        setTimeout(() => {
+          window.location.replace("login.html");
+        }, 120);
       },
     });
 }
@@ -2503,7 +2505,6 @@ async function initAdminUsers() {
   await loadAdminUsers();
 }
 
-document.addEventListener('DOMContentLoaded', initAdminUsers);
 const ACTIVITY_PER_PAGE = 10;
 let activityLogs = [];
 let activityPage = 1;
@@ -2601,4 +2602,312 @@ async function initAdminActivity() {
   document.getElementById('activity-prev').onclick = () => { activityPage--; renderActivityLogs(); };
   document.getElementById('activity-next').onclick = () => { activityPage++; renderActivityLogs(); };
   renderActivityLogs();
+}
+/* ----- A8 / A8d / A8e / A8p: Kelola Pengumuman ----- */
+let _annList = [];
+let _annConcerts = [];
+let _annPage = 1;
+let _annEditing = null;
+let _lastPublishedAnn = null;
+const ANN_PER_PAGE = 5;
+
+async function initAdminAnnouncements() {
+  const admin = getAdminSession();
+  if (!admin) return window.location.replace('login.html');
+  renderAdminLayout('pengumuman');
+
+  document.getElementById('btn-create-ann').onclick = () => openAnnouncementEditor(null);
+  document.getElementById('btn-back-ann-list').onclick = closeAnnouncementEditor;
+  document.getElementById('btn-ed-cancel').onclick = closeAnnouncementEditor;
+
+  const syncFilter = () => { _annPage = 1; renderAnnouncementsTable(); };
+  document.getElementById('ann-search-input').addEventListener('input', syncFilter);
+  document.getElementById('ann-top-search').addEventListener('input', e => {
+    document.getElementById('ann-search-input').value = e.target.value;
+    syncFilter();
+  });
+  document.getElementById('ann-status-filter').addEventListener('change', syncFilter);
+  document.getElementById('ann-reset-filter').onclick = () => {
+    document.getElementById('ann-search-input').value = '';
+    document.getElementById('ann-top-search').value = '';
+    document.getElementById('ann-status-filter').value = '';
+    syncFilter();
+  };
+
+  document.getElementById('ann-prev').onclick = () => { if (_annPage > 1) { _annPage--; renderAnnouncementsTable(); } };
+  document.getElementById('ann-next').onclick = () => { _annPage++; renderAnnouncementsTable(); };
+
+  document.getElementById('ed-content').addEventListener('input', updateEditorWordMeta);
+  document.querySelectorAll('.ann-rich-toolbar button').forEach(btn => {
+    btn.onclick = () => applyEditorFormat(btn.dataset.fmt);
+  });
+
+  document.getElementById('btn-ed-preview').onclick = openAnnouncementPreview;
+  document.getElementById('btn-ed-draft').onclick = () => saveAnnouncementEditor(false);
+  document.getElementById('btn-ed-publish').onclick = () => saveAnnouncementEditor(true);
+  document.getElementById('btn-ed-delete').onclick = deleteCurrentAnnouncement;
+
+  document.getElementById('btn-revert-last-draft').onclick = async () => {
+    if (!_lastPublishedAnn) return;
+    const res = await backend('save_admin_announcement', [admin.user_id, {
+      announcement_id: _lastPublishedAnn.announcement_id,
+      concert_id: _lastPublishedAnn.concert_id,
+      title: _lastPublishedAnn.title,
+      content: _lastPublishedAnn.content,
+      is_published: false,
+    }], null);
+    if (!res || !res.ok) return toast((res && res.message) || 'Gagal mengembalikan ke draft.', 'error');
+    showAnnBanner('Pengumuman dikembalikan ke Draft', `${_lastPublishedAnn.title} tidak lagi tampil di sisi pengunjung.`);
+    _lastPublishedAnn = null;
+    document.getElementById('btn-revert-last-draft').hidden = true;
+    await loadAdminAnnouncements();
+  };
+
+  await loadAdminAnnouncements();
+}
+
+async function loadAdminAnnouncements() {
+  const admin = getAdminSession();
+  const res = await backend('get_admin_announcements', [admin.user_id], null);
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal memuat daftar pengumuman.', 'error');
+    return;
+  }
+  _annList = res.announcements || [];
+  _annConcerts = res.concerts || [];
+
+  const total = _annList.length;
+  const pub = _annList.filter(a => a.is_published).length;
+  const draft = total - pub;
+  const pad2 = n => String(n).padStart(2, '0');
+
+  document.getElementById('ann-kpi-total').textContent = pad2(total);
+  document.getElementById('ann-kpi-pub').textContent = pad2(pub);
+  document.getElementById('ann-kpi-draft').textContent = pad2(draft);
+
+  const cSel = document.getElementById('ed-concert');
+  cSel.innerHTML = _annConcerts.map(c => `<option value="${c.concert_id}">${esc(c.title)}</option>`).join('');
+
+  renderAnnouncementsTable();
+}
+
+function renderAnnouncementsTable() {
+  const q = document.getElementById('ann-search-input').value.trim().toLowerCase();
+  const st = document.getElementById('ann-status-filter').value;
+  const filtered = _annList.filter(a => {
+    const matchQ = !q || (a.title || '').toLowerCase().includes(q);
+    const matchSt = !st || (st === 'published' ? a.is_published : !a.is_published);
+    return matchQ && matchSt;
+  });
+
+  const pages = Math.max(1, Math.ceil(filtered.length / ANN_PER_PAGE));
+  _annPage = Math.min(Math.max(1, _annPage), pages);
+  const start = (_annPage - 1) * ANN_PER_PAGE;
+  const slice = filtered.slice(start, start + ANN_PER_PAGE);
+
+  document.getElementById('ann-count-info').textContent = filtered.length
+    ? `Menampilkan ${start + 1}–${start + slice.length} dari ${filtered.length} pengumuman`
+    : 'Menampilkan 0 pengumuman';
+  document.getElementById('ann-page-no').textContent = _annPage;
+  document.getElementById('ann-prev').disabled = _annPage <= 1;
+  document.getElementById('ann-next').disabled = _annPage >= pages;
+
+  const tbody = document.getElementById('ann-table-body');
+  if (!slice.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">Belum ada pengumuman yang cocok.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = slice.map(a => {
+    const dt = a.published_at || a.created_at;
+    const dStr = dt
+      ? `${new Date(dt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} · ${new Date(dt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':')}`
+      : '—';
+    const stHtml = a.is_published
+      ? '<span style="color:#22c55e">Published</span>'
+      : '<span style="color:#f59e0b">Draft</span>';
+    return `<tr>
+      <td>
+        <div style="font-weight:500">${esc(a.title)}</div>
+        <div class="muted" style="font-size:11px">The Weeknd · Jakarta 2027</div>
+      </td>
+      <td>${esc(a.author_name || 'Admin Publikasi')}</td>
+      <td>${stHtml}</td>
+      <td class="muted">${dStr}</td>
+      <td><button type="button" class="admin-row-action" data-edit-ann="${a.announcement_id}">${a.is_published ? 'Lihat ↗' : 'Edit →'}</button></td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-edit-ann]').forEach(btn => {
+    btn.onclick = () => {
+      const item = _annList.find(x => String(x.announcement_id) === btn.dataset.editAnn);
+      if (item) openAnnouncementEditor(item);
+    };
+  });
+}
+
+function showAnnBanner(title, desc) {
+  const el = document.getElementById('ann-status-banner');
+  el.hidden = false;
+  el.innerHTML = `<span class="ann-feedback-ico">✓</span><div><strong style="display:block;margin-bottom:2px">${esc(title)}</strong><span class="muted">${esc(desc)}</span></div>`;
+}
+
+function openAnnouncementEditor(item) {
+  _annEditing = item;
+  const admin = getAdminSession() || {};
+  document.getElementById('ann-list-view').hidden = true;
+  document.getElementById('ann-editor-view').hidden = false;
+
+  document.getElementById('ed-title').value = item ? item.title : '';
+  document.getElementById('ed-content').value = item ? item.content : '';
+  if (item && item.concert_id) document.getElementById('ed-concert').value = String(item.concert_id);
+
+  const isPub = Boolean(item && item.is_published);
+  const badge = document.getElementById('ed-state-label');
+  badge.textContent = isPub ? 'Published' : 'Draft';
+  badge.className = `ann-badge-state ${isPub ? 'published' : ''}`;
+  document.getElementById('ed-vis-title').textContent = isPub
+    ? 'Published / Tampil di pengunjung'
+    : 'Draft / Belum dipublikasikan';
+  document.getElementById('ed-author-name').textContent = (item && item.author_name) || admin.full_name || 'Admin Publikasi';
+  document.getElementById('btn-ed-delete').hidden = !item;
+
+  updateEditorWordMeta();
+}
+
+function closeAnnouncementEditor() {
+  _annEditing = null;
+  document.getElementById('ann-editor-view').hidden = true;
+  document.getElementById('ann-list-view').hidden = false;
+}
+
+function updateEditorWordMeta() {
+  const txt = document.getElementById('ed-content').value.trim();
+  const words = txt ? txt.split(/\s+/).length : 0;
+  const dt = _annEditing && (_annEditing.published_at || _annEditing.created_at);
+  const stamp = dt
+    ? `Terakhir diubah ${new Date(dt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}, ${new Date(dt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':')} WIB`
+    : 'Belum disimpan';
+  document.getElementById('ed-word-meta').textContent = `${words} kata · ${stamp}`;
+}
+
+function applyEditorFormat(fmt) {
+  const ta = document.getElementById('ed-content');
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const sel = ta.value.slice(start, end) || 'teks';
+  const map = {
+    bold: `**${sel}**`,
+    italic: `_${sel}_`,
+    bullet: `\n• ${sel}`,
+    number: `\n1. ${sel}`,
+    link: `${sel} (https://)`,
+  };
+  const rep = map[fmt] || sel;
+  ta.setRangeText(rep, start, end, 'end');
+  ta.focus();
+  updateEditorWordMeta();
+}
+
+function openAnnouncementPreview() {
+  const title = document.getElementById('ed-title').value.trim() || 'JUDUL PENGUMUMAN';
+  const content = document.getElementById('ed-content').value.trim() || 'Belum ada isi pengumuman.';
+  const admin = getAdminSession() || {};
+  const words = content.split(/\s+/).length;
+  const readMin = Math.max(1, Math.ceil(words / 120));
+  const todayStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  const isPub = Boolean(_annEditing && _annEditing.is_published);
+
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `
+    <div class="ann-preview-modal" role="dialog" aria-modal="true">
+      <div class="ann-preview-head">
+        <span style="font-size:11px;letter-spacing:0.08em;color:${isPub ? '#22c55e' : '#f59e0b'}">
+          PRATINJAU PENGUMUMAN / ${isPub ? 'PUBLISHED' : 'BELUM TAYANG'}
+        </span>
+        <button type="button" class="btn btn-outline" id="pv-close" style="height:36px;padding:0 16px">Tutup ×</button>
+      </div>
+
+      <div class="ann-visual-banner">
+        <small>AFTER HOURS / JAKARTA 2027</small>
+        <div class="ann-visual-heading">THE NIGHT<br>STARTS HERE.</div>
+        <span class="ann-visual-foot">VISUAL KONSEP · TANPA FOTO ASLI ARTIS</span>
+      </div>
+
+      <h2 class="ann-preview-title">${esc(title.toUpperCase())}</h2>
+      <p class="muted" style="font-size:12px">Oleh ${esc(admin.full_name || 'Admin Publikasi')} · ${todayStr} · ${readMin} menit baca</p>
+      <div class="ann-preview-body">${esc(content)}</div>
+
+      <div class="ann-preview-actions">
+        <button type="button" class="btn btn-outline" id="pv-back">Kembali ke Editor</button>
+        <button type="button" class="btn btn-primary" id="pv-publish">Publikasikan →</button>
+      </div>
+      <p class="muted" style="font-size:11px">Tampilan simulasi sisi pengunjung. Tidak ada publikasi ke layanan eksternal.</p>
+    </div>`;
+
+  ov.querySelector('#pv-close').onclick = () => ov.remove();
+  ov.querySelector('#pv-back').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('#pv-publish').onclick = async () => {
+    ov.remove();
+    await saveAnnouncementEditor(true);
+  };
+  document.body.appendChild(ov);
+}
+
+async function saveAnnouncementEditor(publish) {
+  const admin = getAdminSession();
+  const title = document.getElementById('ed-title').value.trim();
+  const content = document.getElementById('ed-content').value.trim();
+  const concertId = Number(document.getElementById('ed-concert').value) || 1;
+
+  const btn = document.getElementById(publish ? 'btn-ed-publish' : 'btn-ed-draft');
+  btn.classList.add('is-loading');
+  btn.disabled = true;
+
+  const res = await backend('save_admin_announcement', [admin.user_id, {
+    announcement_id: _annEditing ? _annEditing.announcement_id : null,
+    concert_id: concertId,
+    title,
+    content,
+    is_published: publish,
+  }], null);
+
+  btn.classList.remove('is-loading');
+  btn.disabled = false;
+
+  if (!res || !res.ok) {
+    toast((res && res.message) || 'Gagal menyimpan pengumuman.', 'error');
+    return;
+  }
+
+  closeAnnouncementEditor();
+  await loadAdminAnnouncements();
+
+  if (publish) {
+    _lastPublishedAnn = res.item || null;
+    document.getElementById('btn-revert-last-draft').hidden = !_lastPublishedAnn;
+    showAnnBanner('Pengumuman berhasil dipublikasikan', `${title} kini tampil di sisi pengunjung.`);
+  } else {
+    showAnnBanner('Draft pengumuman tersimpan', `${title} disimpan sebagai draft.`);
+  }
+  if (res.warning) toast(res.warning, 'warn');
+}
+
+function deleteCurrentAnnouncement() {
+  if (!_annEditing) return;
+  const admin = getAdminSession();
+  confirmModal({
+    title: 'HAPUS PENGUMUMAN?',
+    text: `Pengumuman "${_annEditing.title}" akan dihapus permanen.`,
+    yes: 'Hapus',
+    onYes: async () => {
+      const res = await backend('delete_admin_announcement', [admin.user_id, _annEditing.announcement_id], null);
+      if (!res || !res.ok) return toast((res && res.message) || 'Gagal menghapus pengumuman.', 'error');
+      closeAnnouncementEditor();
+      toast(res.warning || 'Pengumuman berhasil dihapus.', res.warning ? 'warn' : 'success');
+      await loadAdminAnnouncements();
+    },
+  });
 }
