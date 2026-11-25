@@ -954,3 +954,127 @@
 #ann-editor-view[hidden] {
   display: none;
 }
+/* ===== DROPDOWN PROFIL TOPBAR & HALAMAN PROFIL ===== */
+.adm-profile-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.adm-profile-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.adm-profile-trigger:hover .adm-bell {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.adm-profile-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.adm-profile-dropdown[hidden] {
+  display: none;
+}
+.adm-drop-head {
+  padding: 8px 10px 9px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.adm-drop-head strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+.adm-drop-head span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.adm-drop-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.adm-drop-item:hover {
+  background: var(--raised);
+}
+.adm-drop-item.danger {
+  color: #ef4444;
+}
+
+.adm-user-link {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 6px;
+  margin: -6px;
+  transition: background 0.15s ease;
+}
+.adm-user-link:hover {
+  background: var(--raised);
+}
+
+.adm-profile-grid {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.adm-profile-summary {
+  gap: 16px;
+}
+.adm-profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--text);
+}
+.adm-profile-name {
+  font-family: 'Bebas Neue', Impact, sans-serif;
+  font-size: 28px;
+  line-height: 1.05;
+  margin: 0 0 2px;
+}
+.adm-profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.adm-profile-meta > div {
+  display: flex;
+  justify-content: space-between;
+}
