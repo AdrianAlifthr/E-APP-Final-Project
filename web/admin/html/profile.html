@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="/eel.js"></script>
+  <title>Profil Admin · Panel Panitia</title>
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <aside class="adm-side" id="admin-sidebar"></aside>
+
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <div>
+          <div class="adm-crumb">Panel Panitia / Profil</div>
+          <div class="adm-event-name">THE WEEKND · JAKARTA</div>
+        </div>
+        <div class="adm-top-actions">
+          <button class="adm-bell" type="button" aria-label="Profil"></button>
+          <span style="font-size:13px" id="top-admin-name">Admin Publikasi</span>
+        </div>
+      </header>
+
+      <section class="adm-hero-row">
+        <div>
+          <p class="eyebrow">AKUN PANITIA / PENGATURAN PROFIL</p>
+          <h1 class="adm-title">PROFIL TIM PUBLIKASI.</h1>
+          <p class="adm-stamp">Kelola identitas akun dan keamanan akses panel panitia.</p>
+        </div>
+      </section>
+
+      <div class="adm-profile-grid">
+        <aside class="card box adm-profile-summary">
+          <div class="adm-profile-avatar">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </div>
+          <div>
+            <h2 class="adm-profile-name" id="prof-card-name">Admin Publikasi</h2>
+            <p class="muted" style="font-size:13px" id="prof-card-email">—</p>
+          </div>
+          <div class="adm-profile-meta">
+            <div><span class="muted">Role akses</span><strong id="prof-card-role">Admin</strong></div>
+            <div><span class="muted">Terdaftar sejak</span><strong id="prof-card-joined">—</strong></div>
+            <div><span class="muted">Status sesi</span><strong style="color:#22c55e">Aktif</strong></div>
+          </div>
+        </aside>
+
+        <form class="card box" id="adm-profile-form" novalidate>
+          <h2 class="adm-settings-title">INFORMASI AKUN</h2>
+
+          <div class="field">
+            <label for="prof-name">Nama lengkap</label>
+            <input class="input" id="prof-name" required placeholder="Nama admin">
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="field">
+              <label for="prof-email">Email admin</label>
+              <input class="input" id="prof-email" disabled style="opacity:0.65;cursor:not-allowed">
+            </div>
+            <div class="field">
+              <label for="prof-phone">Nomor HP</label>
+              <input class="input" id="prof-phone" placeholder="08xxxxxxxxxx">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="prof-pass">Password baru <span class="muted">(kosongkan jika tidak ingin mengganti)</span></label>
+            <input class="input" id="prof-pass" type="password" placeholder="Minimal 6 karakter" autocomplete="new-password">
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:6px">
+            <a href="dashboard.html" class="btn btn-outline">Batal</a>
+            <button type="submit" class="btn btn-primary" id="btn-save-profile">Simpan Perubahan</button>
+          </div>
+        </form>
+      </div>
+
+      <footer class="a1-foot">PROYEK AKADEMIK · DATA &amp; AKSI SIMULASI</footer>
+    </div>
+  </div>
+
+  <script src="../../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', initAdminProfile);</script>
+</body>
+</html>

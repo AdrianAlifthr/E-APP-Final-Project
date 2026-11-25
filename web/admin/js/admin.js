@@ -2911,3 +2911,124 @@ function deleteCurrentAnnouncement() {
     },
   });
 }
+/* ===== OVERRIDE PROFIL TOPBAR, SIDEBAR BAWAH & HALAMAN PROFIL ===== */
+function setupAdminProfileTriggers(displayName) {
+  const icoProfile = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+  const icoLogout = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`;
+
+  const triggerLogout = () => {
+    const logoutBtn = document.getElementById("admin-logout");
+    if (logoutBtn) logoutBtn.click();
+  };
+
+  // 1. Klik kartu profil di pojok kiri bawah sidebar -> buka profile.html
+  const sideUser = document.querySelector(".adm-side-bot .adm-user");
+  if (sideUser) {
+    sideUser.classList.add("adm-user-link");
+    sideUser.title = "Buka halaman profil";
+    sideUser.onclick = () => {
+      window.location.href = "profile.html";
+    };
+  }
+
+  // 2. Ubah ikon lonceng kanan atas menjadi tombol Profil + dropdown card
+  const bellBtn = document.querySelector(".adm-top-actions .adm-bell");
+  const topName = document.getElementById("top-admin-name");
+  if (!bellBtn) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "adm-profile-menu-wrap";
+  wrap.innerHTML = `
+    <button type="button" class="adm-profile-trigger" id="adm-profile-btn" aria-expanded="false" title="Menu Profil">
+      <span class="adm-bell">${icoProfile}</span>
+      <span style="font-size:13px">${esc(displayName)}</span>
+    </button>
+    <div class="adm-profile-dropdown" id="adm-profile-dropdown" hidden>
+      <div class="adm-drop-head">
+        <strong>${esc(displayName)}</strong>
+        <span>Tim publikasi</span>
+      </div>
+      <a href="profile.html" class="adm-drop-item">${icoProfile}<span>Profil</span></a>
+      <button type="button" class="adm-drop-item danger" id="adm-drop-logout">${icoLogout}<span>Keluar</span></button>
+    </div>`;
+
+  bellBtn.replaceWith(wrap);
+  if (topName) topName.remove();
+
+  const btn = wrap.querySelector("#adm-profile-btn");
+  const menu = wrap.querySelector("#adm-profile-dropdown");
+
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  };
+
+  wrap.querySelector("#adm-drop-logout").onclick = () => {
+    menu.hidden = true;
+    triggerLogout();
+  };
+
+  document.addEventListener("click", (e) => {
+    if (!wrap.contains(e.target)) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+const _origRenderAdminLayout = renderAdminLayout;
+renderAdminLayout = function (activeMenu) {
+  _origRenderAdminLayout(activeMenu);
+  const admin = getAdminSession();
+  const displayName = (admin && admin.full_name) || "Admin Publikasi";
+  setupAdminProfileTriggers(displayName);
+};
+
+async function initAdminProfile() {
+  const admin = getAdminSession();
+  if (!admin) return window.location.replace("login.html");
+  renderAdminLayout("profil");
+
+  const res = await backend("get_admin_profile", [admin.user_id], null);
+  const p = (res && res.ok && res.profile) ? res.profile : admin;
+
+  document.getElementById("prof-card-name").textContent = p.full_name || "Admin Publikasi";
+  document.getElementById("prof-card-email").textContent = p.email || "-";
+  document.getElementById("prof-card-role").textContent = (p.role || "admin").toUpperCase();
+  document.getElementById("prof-card-joined").textContent = p.created_at
+    ? new Date(p.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })
+    : "-";
+
+  document.getElementById("prof-name").value = p.full_name || "";
+  document.getElementById("prof-email").value = p.email || "";
+  document.getElementById("prof-phone").value = p.phone || "";
+
+  document.getElementById("adm-profile-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const saveBtn = document.getElementById("btn-save-profile");
+    saveBtn.classList.add("is-loading");
+    saveBtn.disabled = true;
+
+    const upRes = await backend("update_admin_profile", [admin.user_id, {
+      full_name: document.getElementById("prof-name").value.trim(),
+      phone: document.getElementById("prof-phone").value.trim(),
+      new_password: document.getElementById("prof-pass").value,
+    }], null);
+
+    saveBtn.classList.remove("is-loading");
+    saveBtn.disabled = false;
+
+    if (!upRes || !upRes.ok) {
+      toast((upRes && upRes.message) || "Gagal menyimpan profil.", "error");
+      return;
+    }
+
+    const updatedUser = { ...admin, ...upRes.profile };
+    Auth.set(updatedUser);
+    document.getElementById("prof-pass").value = "";
+    toast(upRes.warning || "Profil admin berhasil diperbarui!", upRes.warning ? "warn" : "success");
+    initAdminProfile();
+  };
+}

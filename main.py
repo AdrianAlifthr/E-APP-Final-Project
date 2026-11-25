@@ -937,6 +937,62 @@ def delete_admin_announcement(user_id, announcement_id):
         return _err(exc, "Gagal menghapus pengumuman")
 
 @eel.expose
+def get_admin_profile(user_id):
+    admin = _require_admin(user_id)
+    if not admin:
+        return {"ok": False, "message": "Akses ditolak."}
+    try:
+        rows = (
+            supabase.table("users")
+            .select("user_id, full_name, email, phone, role, created_at")
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not rows:
+            return {"ok": False, "message": "Data profil tidak ditemukan."}
+        return {"ok": True, "profile": rows[0]}
+    except Exception as exc:
+        return _err(exc, "Gagal memuat profil admin")
+
+
+@eel.expose
+def update_admin_profile(user_id, payload):
+    admin = _require_admin(user_id)
+    if not admin:
+        return {"ok": False, "message": "Akses ditolak."}
+    data = payload or {}
+    full_name = (data.get("full_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    new_password = (data.get("new_password") or "").strip()
+
+    if len(full_name) < 2:
+        return {"ok": False, "message": "Nama lengkap minimal 2 karakter."}
+    if new_password and len(new_password) < 6:
+        return {"ok": False, "message": "Password baru minimal 6 karakter."}
+
+    try:
+        update_data = {"full_name": full_name, "phone": phone or None}
+        res = (
+            supabase.table("users")
+            .update(update_data)
+            .eq("user_id", str(user_id))
+            .execute()
+        )
+        if new_password:
+            try:
+                supabase.auth.update_user({"password": new_password})
+            except Exception:
+                pass
+
+        warning = _record_admin_activity(user_id, "Memperbarui profil admin", full_name)
+        updated = res.data[0] if res.data else {**admin, **update_data}
+        return {"ok": True, "profile": updated, "warning": warning}
+    except Exception as exc:
+        return _err(exc, "Gagal memperbarui profil")
+    
+@eel.expose
 def get_admin_concert_detail(user_id):
     if not _require_admin(user_id):
         return {"ok": False, "message": "Akses ditolak."}
